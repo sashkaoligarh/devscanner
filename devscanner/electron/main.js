@@ -28,12 +28,19 @@ function parseWslPath(p) {
   }
 }
 
+function shellQuote(s) {
+  if (/^[a-zA-Z0-9._\-\/=:@]+$/.test(s)) return s
+  return "'" + s.replace(/'/g, "'\\''") + "'"
+}
+
 function execInContext(command, options) {
   if (options.cwd && isWslPath(options.cwd)) {
     const parsed = parseWslPath(options.cwd)
     if (parsed) {
+      // Use bash -lc to get login shell with proper PATH (nvm, etc.)
+      const escaped = command.replace(/"/g, '\\"')
       return execSync(
-        `wsl.exe -d ${parsed.distro} --cd "${parsed.linuxPath}" -- ${command}`,
+        `wsl.exe -d ${parsed.distro} --cd "${parsed.linuxPath}" -- bash -lc "${escaped}"`,
         { ...options, cwd: undefined }
       )
     }
@@ -45,16 +52,19 @@ function spawnInContext(command, args, options) {
   if (options?.cwd && isWslPath(options.cwd)) {
     const parsed = parseWslPath(options.cwd)
     if (parsed) {
-      const wslArgs = ['-d', parsed.distro, '--cd', parsed.linuxPath, '--']
-      // Pass extra env vars via `env` command
+      // Build command string for bash -lc (login shell for proper PATH)
+      const envPrefix = []
       if (options.env) {
-        const extras = []
         for (const [k, v] of Object.entries(options.env)) {
-          if (process.env[k] !== v) extras.push(`${k}=${v}`)
+          if (process.env[k] !== v) envPrefix.push(`export ${k}=${shellQuote(v)}`)
         }
-        if (extras.length > 0) wslArgs.push('env', ...extras)
       }
-      wslArgs.push(command, ...args)
+      const cmdParts = [command, ...args.map(shellQuote)]
+      const fullCmd = envPrefix.length > 0
+        ? envPrefix.join(' && ') + ' && ' + cmdParts.join(' ')
+        : cmdParts.join(' ')
+
+      const wslArgs = ['-d', parsed.distro, '--cd', parsed.linuxPath, '--', 'bash', '-lc', fullCmd]
       return spawn('wsl.exe', wslArgs, {
         ...options, cwd: undefined, env: undefined, shell: false
       })
