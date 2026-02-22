@@ -62,12 +62,15 @@ const electron = {
   killPortProcess: (o) => window.electron?.killPortProcess?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   getSettings: () => window.electron?.getSettings?.() ?? Promise.resolve({}),
   saveSettings: (s) => window.electron?.saveSettings?.(s) ?? Promise.resolve({ success: true }),
+  getHostInfo: () => window.electron?.getHostInfo?.() ?? Promise.resolve({ isWsl: false, wslIp: null }),
   getWslDistros: () => window.electron?.getWslDistros?.() ?? Promise.resolve([]),
   selectWslFolder: (d) => window.electron?.selectWslFolder?.(d) ?? Promise.resolve(null),
   onProjectLog: (cb) => window.electron?.onProjectLog?.(cb),
   onProjectStopped: (cb) => window.electron?.onProjectStopped?.(cb),
+  onProjectPortChanged: (cb) => window.electron?.onProjectPortChanged?.(cb),
   removeProjectLogListener: () => window.electron?.removeProjectLogListener?.(),
   removeProjectStoppedListener: () => window.electron?.removeProjectStoppedListener?.(),
+  removeProjectPortChangedListener: () => window.electron?.removeProjectPortChangedListener?.(),
   onUpdateAvailable: (cb) => window.electron?.onUpdateAvailable?.(cb),
   onUpdateDownloadProgress: (cb) => window.electron?.onUpdateDownloadProgress?.(cb),
   onUpdateDownloaded: (cb) => window.electron?.onUpdateDownloaded?.(cb),
@@ -101,6 +104,7 @@ export default function App() {
   const [updateReady, setUpdateReady] = useState(false)
   const [wslDistros, setWslDistros] = useState([])
   const [wslMenuOpen, setWslMenuOpen] = useState(false)
+  const [hostIp, setHostIp] = useState(null)
 
   const logRef = useRef(null)
 
@@ -115,6 +119,19 @@ export default function App() {
         const combined = [...lines, ...newLines]
         while (combined.length > 500) combined.shift()
         return { ...prev, [key]: combined }
+      })
+    })
+
+    electron.onProjectPortChanged(({ projectPath, instanceId, port }) => {
+      setRunning(prev => {
+        if (!prev[projectPath]?.[instanceId]) return prev
+        return {
+          ...prev,
+          [projectPath]: {
+            ...prev[projectPath],
+            [instanceId]: { ...prev[projectPath][instanceId], port }
+          }
+        }
       })
     })
 
@@ -155,6 +172,11 @@ export default function App() {
       setUpdateReady(true)
     })
 
+    // Detect host info (WSL IP, etc.)
+    electron.getHostInfo().then(info => {
+      if (info.wslIp) setHostIp(info.wslIp)
+    })
+
     // Detect WSL distros
     electron.getWslDistros().then(distros => {
       if (distros.length > 0) setWslDistros(distros)
@@ -182,6 +204,7 @@ export default function App() {
     return () => {
       electron.removeProjectLogListener()
       electron.removeProjectStoppedListener()
+      electron.removeProjectPortChangedListener()
       electron.removeUpdateListeners()
     }
   }, [])
@@ -339,8 +362,9 @@ export default function App() {
   }, [])
 
   const handleOpenBrowser = useCallback((port) => {
-    electron.openBrowser(`http://localhost:${port}`)
-  }, [])
+    const host = hostIp || 'localhost'
+    electron.openBrowser(`http://${host}:${port}`)
+  }, [hostIp])
 
   const handleCloseTab = useCallback((tabKey) => {
     const sepIdx = tabKey.indexOf('::')
@@ -616,6 +640,7 @@ export default function App() {
               info={getTabInfo(activeTabKey)}
               logs={logs[activeTabKey] || []}
               logRef={logRef}
+              hostIp={hostIp}
               onStop={handleStop}
               onOpenBrowser={handleOpenBrowser}
             />
@@ -638,7 +663,8 @@ export default function App() {
   )
 }
 
-function ConsoleView({ tabKey, info, logs, logRef, onStop, onOpenBrowser }) {
+function ConsoleView({ tabKey, info, logs, logRef, hostIp, onStop, onOpenBrowser }) {
+  const host = hostIp || 'localhost'
   return (
     <div className="console-view">
       <div className="console-header">
@@ -648,7 +674,7 @@ function ConsoleView({ tabKey, info, logs, logRef, onStop, onOpenBrowser }) {
         <div className="console-actions">
           {info.isRunning && (
             <>
-              <span className="status-badge">Running on :{info.port}</span>
+              <span className="status-badge">{host}:{info.port}</span>
               <button
                 className="btn btn-danger"
                 onClick={() => onStop(info.projectPath, info.instanceId)}
@@ -802,6 +828,19 @@ function ProjectCard({
 }
 
 function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, onSetMode, onKill, onOpenBrowser }) {
+  const [portSearch, setPortSearch] = useState('')
+
+  const filteredPorts = useMemo(() => {
+    if (!portSearch.trim()) return ports
+    const q = portSearch.toLowerCase()
+    return ports.filter(e =>
+      String(e.port).includes(q) ||
+      (e.processName && e.processName.toLowerCase().includes(q)) ||
+      (e.address && e.address.toLowerCase().includes(q)) ||
+      (e.pid && String(e.pid).includes(q))
+    )
+  }, [ports, portSearch])
+
   return (
     <div className="port-scanner">
       <div className="port-scanner-toolbar">
@@ -831,9 +870,24 @@ function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, on
             {scanning ? 'Scanning...' : 'Scan'}
           </button>
         </div>
-        <span className="port-scanner-count">
-          {ports.length} port{ports.length !== 1 ? 's' : ''} listening
-        </span>
+        <div className="port-scanner-right">
+          {ports.length > 0 && (
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <Search size={12} style={{ position: 'absolute', left: 8, color: 'var(--color-text-dim)' }} />
+              <input
+                className="search-input search-input-sm"
+                style={{ paddingLeft: '1.75rem' }}
+                type="text"
+                placeholder="Filter ports..."
+                value={portSearch}
+                onChange={e => setPortSearch(e.target.value)}
+              />
+            </div>
+          )}
+          <span className="port-scanner-count">
+            {filteredPorts.length}{filteredPorts.length !== ports.length ? `/${ports.length}` : ''} port{filteredPorts.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
       {error && <div className="port-scanner-error">{error}</div>}
@@ -854,6 +908,11 @@ function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, on
             Scan Ports
           </button>
         </div>
+      ) : filteredPorts.length === 0 ? (
+        <div className="empty-state">
+          <Search size={48} className="empty-state-icon" />
+          <div className="empty-state-text">No ports match "{portSearch}"</div>
+        </div>
       ) : (
         <div className="port-table-wrapper">
           <table className="port-table">
@@ -867,7 +926,7 @@ function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, on
               </tr>
             </thead>
             <tbody>
-              {ports.map((entry) => (
+              {filteredPorts.map((entry) => (
                 <tr key={`${entry.port}-${entry.pid}`} className="port-row">
                   <td className="port-number">:{entry.port}</td>
                   <td className="port-address">{entry.address || '*'}</td>

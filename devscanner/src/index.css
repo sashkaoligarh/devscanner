@@ -887,9 +887,22 @@ select.form-input {
   background: rgba(0, 255, 136, 0.08);
 }
 
+.port-scanner-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.search-input-sm {
+  width: 150px;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.6rem;
+}
+
 .port-scanner-count {
   font-size: 0.7rem;
   color: var(--color-text-dim);
+  white-space: nowrap;
 }
 
 .port-scanner-error {

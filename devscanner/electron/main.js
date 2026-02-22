@@ -13,6 +13,22 @@ let mainWindow
 
 // --- WSL Support ---
 
+const isRunningInsideWsl = (() => {
+  try {
+    if (process.platform !== 'linux') return false
+    const version = fs.readFileSync('/proc/version', 'utf-8')
+    return /microsoft|wsl/i.test(version)
+  } catch { return false }
+})()
+
+let wslHostIp = null
+if (isRunningInsideWsl) {
+  try {
+    wslHostIp = execSync('hostname -I', { encoding: 'utf-8', timeout: 2000 }).trim().split(' ')[0] || null
+    console.log('[DevScanner] Running inside WSL, host IP:', wslHostIp)
+  } catch { /* ok */ }
+}
+
 function isWslPath(p) {
   return process.platform === 'win32' && /^\\\\wsl/i.test(p)
 }
@@ -713,6 +729,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
 
     if (method === 'npm') {
       let scriptName = null
+      let scriptCmd = ''
       try {
         const pkg = JSON.parse(
           fs.readFileSync(path.join(npmCwd, 'package.json'), 'utf-8')
@@ -720,11 +737,11 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         const scripts = pkg.scripts || {}
         const priority = ['dev', 'start', 'serve']
         for (const s of priority) {
-          if (scripts[s]) { scriptName = s; break }
+          if (scripts[s]) { scriptName = s; scriptCmd = scripts[s]; break }
         }
         if (!scriptName) {
           const keys = Object.keys(scripts)
-          if (keys.length > 0) scriptName = keys[0]
+          if (keys.length > 0) { scriptName = keys[0]; scriptCmd = scripts[keys[0]] }
         }
       } catch {
         return { success: false, error: 'Failed to read package.json scripts' }
@@ -734,11 +751,24 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         return { success: false, error: 'No npm scripts found in package.json' }
       }
 
+      // Detect tool to pass correct flags
+      const isVite = /\bvite\b/.test(scriptCmd)
+      const isNext = /\bnext\b/.test(scriptCmd)
+
       const useWsl = isWslPath(npmCwd)
       const npmCmd = process.platform === 'win32' && !useWsl ? 'npm.cmd' : 'npm'
-      proc = spawnInContext(npmCmd, ['run', scriptName], {
+      const npmArgs = ['run', scriptName, '--']
+      if (isVite) {
+        npmArgs.push('--port', String(portNum), '--host')
+      } else if (isNext) {
+        npmArgs.push('-p', String(portNum), '-H', '0.0.0.0')
+      } else {
+        npmArgs.push('--port', String(portNum))
+      }
+      console.log('[DevScanner] npm launch:', npmCmd, npmArgs.join(' '), '| cwd:', npmCwd, '| script:', scriptCmd)
+      proc = spawnInContext(npmCmd, npmArgs, {
         cwd: npmCwd,
-        env: { ...process.env, PORT: String(portNum) },
+        env: { ...process.env, PORT: String(portNum), HOST: '0.0.0.0' },
         shell: process.platform === 'win32' && !useWsl
       })
     } else if (method === 'docker') {
@@ -768,7 +798,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
             mainWindow.webContents.send('project-log', {
               projectPath,
               instanceId,
-              data: chunk.toString()
+              data: stripAnsi(chunk.toString())
             })
           }
         })
@@ -778,7 +808,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
             mainWindow.webContents.send('project-log', {
               projectPath,
               instanceId,
-              data: chunk.toString()
+              data: stripAnsi(chunk.toString())
             })
           }
         })
@@ -804,6 +834,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
               port: portNum,
               method: 'docker',
               pid: runProc.pid,
+              cwd: projectPath,
               startedAt: Date.now()
             })
 
@@ -822,6 +853,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       port: portNum,
       method,
       pid: proc.pid,
+      cwd: method === 'npm' ? npmCwd : projectPath,
       startedAt: Date.now()
     })
 
@@ -835,26 +867,66 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
   }
 })
 
-function attachProcessListeners(proc, projectPath, instanceId) {
-  proc.stdout.on('data', (chunk) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('project-log', {
-        projectPath,
-        instanceId,
-        data: chunk.toString()
-      })
-    }
-  })
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /(?:\x1b\x5b|\x1b\(B|\x9b)[\x20-\x3f]*[\x40-\x7e]|\x1b[\x20-\x2f]*[\x30-\x7e]/g
+// Orphaned bracket codes (ESC byte stripped by wsl.exe pipe): [32m, [1m, [0m, etc.
+const ORPHAN_RE = /\[(?:\d{1,3}(?:;\d{0,3})*)?[mGKHJABCDEFsu]/g
 
-  proc.stderr.on('data', (chunk) => {
+function stripAnsi(str) {
+  return str.replace(ANSI_RE, '').replace(ORPHAN_RE, '')
+}
+
+// Detect actual port from dev server output (Vite, Next, CRA, etc.)
+const PORT_PATTERNS = [
+  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)/,  // http://localhost:5175
+  /Local:\s+https?:\/\/[^:]+:(\d+)/,                          // Local:   http://localhost:5175
+  /listening (?:on|at) (?:port )?(\d+)/i,                      // listening on port 3000
+  /started (?:on|at) (?:port )?(\d+)/i,                        // started on port 8000
+  /ready on .*:(\d+)/i,                                        // ready on http://localhost:3000
+]
+
+function detectPort(text) {
+  for (const re of PORT_PATTERNS) {
+    const m = text.match(re)
+    if (m) return parseInt(m[1], 10)
+  }
+  return null
+}
+
+function attachProcessListeners(proc, projectPath, instanceId) {
+  let portDetected = false
+
+  function handleOutput(chunk) {
+    const clean = stripAnsi(chunk.toString())
+
+    // Detect real port from output and update stored entry
+    if (!portDetected) {
+      const realPort = detectPort(clean)
+      if (realPort) {
+        portDetected = true
+        const entry = getProcessEntry(projectPath, instanceId)
+        if (entry && entry.port !== realPort) {
+          console.log(`[DevScanner] Port change detected: ${entry.port} → ${realPort} (${instanceId})`)
+          entry.port = realPort
+          // Notify frontend about the real port
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('project-port-changed', {
+              projectPath, instanceId, port: realPort
+            })
+          }
+        }
+      }
+    }
+
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('project-log', {
-        projectPath,
-        instanceId,
-        data: chunk.toString()
+        projectPath, instanceId, data: clean
       })
     }
-  })
+  }
+
+  proc.stdout.on('data', handleOutput)
+  proc.stderr.on('data', handleOutput)
 
   proc.on('close', (code) => {
     deleteProcessEntry(projectPath, instanceId)
@@ -883,6 +955,9 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
       return { success: false, error: 'Instance not running' }
     }
 
+    const effectiveCwd = entry.cwd || projectPath
+    const wsl = isWslPath(effectiveCwd)
+
     if (entry.method === 'docker') {
       const hasCompose =
         fs.existsSync(path.join(projectPath, 'docker-compose.yml')) ||
@@ -891,25 +966,52 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
       if (hasCompose) {
         spawnInContext('docker-compose', ['down'], {
           cwd: projectPath,
-          shell: process.platform === 'win32' && !isWslPath(projectPath)
+          shell: process.platform === 'win32' && !wsl
         })
       } else {
         const imageName = `devscanner-${path.basename(projectPath).toLowerCase()}`
         spawnInContext('docker', ['stop', imageName], {
           cwd: projectPath,
-          shell: process.platform === 'win32' && !isWslPath(projectPath)
+          shell: process.platform === 'win32' && !wsl
         })
       }
     }
 
-    try {
-      if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(entry.pid), '/f', '/t'])
-      } else {
-        process.kill(entry.pid, 'SIGTERM')
+    // Kill the process tree
+    if (wsl) {
+      // For WSL: kill the port listener inside WSL, then kill wsl.exe on Windows
+      const parsed = parseWslPath(effectiveCwd)
+      if (parsed && entry.port) {
+        try {
+          execSync(
+            `wsl.exe -d ${parsed.distro} -- bash -lc "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
+            { timeout: 5000 }
+          )
+        } catch { /* best effort */ }
       }
-    } catch {
-      // process may have already exited
+      try {
+        spawn('taskkill', ['/pid', String(entry.pid), '/f', '/t'])
+      } catch { /* may have already exited */ }
+    } else if (process.platform === 'win32') {
+      try {
+        spawn('taskkill', ['/pid', String(entry.pid), '/f', '/t'])
+      } catch { /* may have already exited */ }
+    } else {
+      // Linux/macOS: kill entire process group, then fuser as fallback
+      try {
+        process.kill(-entry.pid, 'SIGTERM')
+      } catch { /* may not be group leader */ }
+      try {
+        process.kill(entry.pid, 'SIGTERM')
+      } catch { /* may have already exited */ }
+      // Fallback: kill whatever holds the port
+      if (entry.port) {
+        setTimeout(() => {
+          try {
+            execSync(`fuser -k ${entry.port}/tcp 2>/dev/null`, { timeout: 3000 })
+          } catch { /* best effort */ }
+        }, 500)
+      }
     }
 
     deleteProcessEntry(projectPath, instanceId)
@@ -936,7 +1038,13 @@ ipcMain.handle('get-running', async () => {
 
 ipcMain.handle('open-browser', async (event, url) => {
   try {
-    await shell.openExternal(url)
+    let finalUrl = url
+    // Inside WSL: replace localhost with WSL IP so Windows browser can reach it
+    if (isRunningInsideWsl && wslHostIp) {
+      finalUrl = url.replace(/\/\/localhost:/,  `//${wslHostIp}:`)
+                     .replace(/\/\/127\.0\.0\.1:/, `//${wslHostIp}:`)
+    }
+    await shell.openExternal(finalUrl)
   } catch {
     // silently fail
   }
@@ -949,6 +1057,13 @@ ipcMain.handle('get-settings', async () => {
 ipcMain.handle('save-settings', async (event, settings) => {
   saveSettings(settings)
   return { success: true }
+})
+
+ipcMain.handle('get-host-info', async () => {
+  return {
+    isWsl: isRunningInsideWsl,
+    wslIp: wslHostIp
+  }
 })
 
 ipcMain.handle('get-wsl-distros', async () => {
@@ -1263,10 +1378,26 @@ app.on('before-quit', () => {
   for (const [, instances] of runningProcesses) {
     for (const [, entry] of instances) {
       try {
-        if (process.platform === 'win32') {
+        const wsl = entry.cwd && isWslPath(entry.cwd)
+        if (wsl) {
+          const parsed = parseWslPath(entry.cwd)
+          if (parsed && entry.port) {
+            try {
+              execSync(
+                `wsl.exe -d ${parsed.distro} -- bash -lc "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
+                { timeout: 3000 }
+              )
+            } catch { /* best effort */ }
+          }
+          spawn('taskkill', ['/pid', String(entry.pid), '/f', '/t'])
+        } else if (process.platform === 'win32') {
           spawn('taskkill', ['/pid', String(entry.pid), '/f', '/t'])
         } else {
-          process.kill(entry.pid, 'SIGTERM')
+          try { process.kill(-entry.pid, 'SIGTERM') } catch { /* not group leader */ }
+          try { process.kill(entry.pid, 'SIGTERM') } catch { /* already exited */ }
+          if (entry.port) {
+            try { execSync(`fuser -k ${entry.port}/tcp 2>/dev/null`, { timeout: 2000 }) } catch { /* ok */ }
+          }
         }
       } catch {
         // process may have already exited

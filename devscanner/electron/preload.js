@@ -12,14 +12,17 @@ contextBridge.exposeInMainWorld('electron', {
   killPortProcess: (opts) => ipcRenderer.invoke('kill-port-process', opts),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getHostInfo: () => ipcRenderer.invoke('get-host-info'),
   getWslDistros: () => ipcRenderer.invoke('get-wsl-distros'),
   selectWslFolder: (distro) => ipcRenderer.invoke('select-wsl-folder', distro),
 
   onProjectLog: (cb) => ipcRenderer.on('project-log', (_, data) => cb(data)),
   onProjectStopped: (cb) => ipcRenderer.on('project-stopped', (_, data) => cb(data)),
+  onProjectPortChanged: (cb) => ipcRenderer.on('project-port-changed', (_, data) => cb(data)),
 
   removeProjectLogListener: () => ipcRenderer.removeAllListeners('project-log'),
   removeProjectStoppedListener: () => ipcRenderer.removeAllListeners('project-stopped'),
+  removeProjectPortChangedListener: () => ipcRenderer.removeAllListeners('project-port-changed'),
 
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, info) => cb(info)),
   onUpdateDownloadProgress: (cb) => ipcRenderer.on('update-download-progress', (_, progress) => cb(progress)),
