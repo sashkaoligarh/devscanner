@@ -1,0 +1,51 @@
+{
+  "name": "devscanner",
+  "version": "1.0.0",
+  "description": "Local developer tool that scans project folders and launches them via npm or Docker",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:5173 -i 100 -t 30000 && electron . --no-sandbox --ozone-platform=x11\"",
+    "build": "vite build && electron-builder"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "js-yaml": "^4.1.1",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^27.3.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^4.5.2",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.devscanner.app",
+    "productName": "DevScanner",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "sashkaoligarh",
+      "repo": "devscanner"
+    },
+    "mac": {
+      "target": "zip",
+      "identity": null
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
