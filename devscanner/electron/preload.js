@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electron', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   getWslDistros: () => ipcRenderer.invoke('get-wsl-distros'),
+  selectWslFolder: (distro) => ipcRenderer.invoke('select-wsl-folder', distro),
 
   onProjectLog: (cb) => ipcRenderer.on('project-log', (_, data) => cb(data)),
   onProjectStopped: (cb) => ipcRenderer.on('project-stopped', (_, data) => cb(data)),

@@ -629,6 +629,56 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* WSL button & dropdown */
+
+.btn-wsl {
+  border-color: rgba(130, 80, 255, 0.4);
+  color: #a78bfa;
+}
+
+.btn-wsl:hover {
+  border-color: #a78bfa;
+  background: rgba(130, 80, 255, 0.1);
+  color: #c4b5fd;
+}
+
+.wsl-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 160px;
+  background: var(--color-surface);
+  border: 1px solid rgba(130, 80, 255, 0.3);
+  border-radius: 6px;
+  overflow: hidden;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.wsl-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.wsl-dropdown-item:hover {
+  background: rgba(130, 80, 255, 0.1);
+  color: #c4b5fd;
+}
+
+.wsl-dropdown-item:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
 /* Docker-compose badge */
 
 .project-type-badge {

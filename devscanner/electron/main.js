@@ -951,6 +951,33 @@ ipcMain.handle('get-wsl-distros', async () => {
   }
 })
 
+ipcMain.handle('select-wsl-folder', async (event, distro) => {
+  if (process.platform !== 'win32' || !distro) return null
+  try {
+    const wslRoot = `\\\\wsl$\\${distro}\\home`
+    // Try to find user home dirs inside /home
+    let defaultPath = `\\\\wsl$\\${distro}`
+    try {
+      const homeEntries = fs.readdirSync(wslRoot)
+      if (homeEntries.length > 0) {
+        defaultPath = path.join(wslRoot, homeEntries[0])
+      }
+    } catch { /* use distro root */ }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      defaultPath
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const selected = result.filePaths[0]
+    saveSettings({ lastFolder: selected })
+    return selected
+  } catch (err) {
+    console.error('select-wsl-folder error:', err)
+    return null
+  }
+})
+
 // --- Port Scanner ---
 
 const COMMON_DEV_PORTS = [

@@ -63,6 +63,7 @@ const electron = {
   getSettings: () => window.electron?.getSettings?.() ?? Promise.resolve({}),
   saveSettings: (s) => window.electron?.saveSettings?.(s) ?? Promise.resolve({ success: true }),
   getWslDistros: () => window.electron?.getWslDistros?.() ?? Promise.resolve([]),
+  selectWslFolder: (d) => window.electron?.selectWslFolder?.(d) ?? Promise.resolve(null),
   onProjectLog: (cb) => window.electron?.onProjectLog?.(cb),
   onProjectStopped: (cb) => window.electron?.onProjectStopped?.(cb),
   removeProjectLogListener: () => window.electron?.removeProjectLogListener?.(),
@@ -98,6 +99,8 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState(null)
   const [updateProgress, setUpdateProgress] = useState(null)
   const [updateReady, setUpdateReady] = useState(false)
+  const [wslDistros, setWslDistros] = useState([])
+  const [wslMenuOpen, setWslMenuOpen] = useState(false)
 
   const logRef = useRef(null)
 
@@ -152,6 +155,11 @@ export default function App() {
       setUpdateReady(true)
     })
 
+    // Detect WSL distros
+    electron.getWslDistros().then(distros => {
+      if (distros.length > 0) setWslDistros(distros)
+    })
+
     // Load saved settings
     electron.getSettings().then(settings => {
       if (settings.launchConfigs) {
@@ -184,8 +192,37 @@ export default function App() {
     }
   }, [logs, activeTab])
 
+  // Close WSL dropdown on outside click
+  useEffect(() => {
+    if (!wslMenuOpen) return
+    const handleClick = () => setWslMenuOpen(false)
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [wslMenuOpen])
+
   const handleChooseFolder = useCallback(async () => {
     const selected = await electron.selectFolder()
+    if (selected) {
+      setFolderPath(selected)
+      setScanError(null)
+      setScanning(true)
+      setLogs({})
+      setOpenTabs([])
+      setActiveTab('projects')
+      const result = await electron.scanFolder(selected)
+      if (result.success) {
+        setProjects(result.data)
+      } else {
+        setScanError(result.error)
+        setProjects([])
+      }
+      setScanning(false)
+    }
+  }, [])
+
+  const handleOpenWslFolder = useCallback(async (distro) => {
+    setWslMenuOpen(false)
+    const selected = await electron.selectWslFolder(distro)
     if (selected) {
       setFolderPath(selected)
       setScanError(null)
@@ -407,10 +444,36 @@ export default function App() {
             </div>
           )}
           {navTab === 'projects' && (
-            <button className="btn btn-primary" onClick={handleChooseFolder}>
-              <FolderOpen size={14} />
-              Choose Folder
-            </button>
+            <>
+              {wslDistros.length > 0 && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="btn btn-wsl"
+                    onClick={() => setWslMenuOpen(prev => !prev)}
+                  >
+                    <Terminal size={14} />
+                    WSL
+                  </button>
+                  {wslMenuOpen && (
+                    <div className="wsl-dropdown">
+                      {wslDistros.map(d => (
+                        <button
+                          key={d}
+                          className="wsl-dropdown-item"
+                          onClick={() => handleOpenWslFolder(d)}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <button className="btn btn-primary" onClick={handleChooseFolder}>
+                <FolderOpen size={14} />
+                Choose Folder
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -800,7 +863,12 @@ function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, on
                   <td className="port-number">:{entry.port}</td>
                   <td className="port-address">{entry.address || '*'}</td>
                   <td className="port-pid">{entry.pid || '\u2014'}</td>
-                  <td className="port-process">{entry.processName || '\u2014'}</td>
+                  <td className="port-process">
+                    {entry.processName || '\u2014'}
+                    {entry.processName && entry.processName.toLowerCase().includes('wslrelay') && (
+                      <span className="wsl-badge">WSL</span>
+                    )}
+                  </td>
                   <td className="port-actions">
                     <button
                       className="btn btn-sm"
