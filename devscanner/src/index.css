@@ -612,6 +612,23 @@ body {
   border-radius: 3px;
 }
 
+/* WSL badge */
+
+.wsl-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(130, 80, 255, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(130, 80, 255, 0.3);
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
 /* Docker-compose badge */
 
 .project-type-badge {

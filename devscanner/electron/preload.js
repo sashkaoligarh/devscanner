@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electron', {
   killPortProcess: (opts) => ipcRenderer.invoke('kill-port-process', opts),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getWslDistros: () => ipcRenderer.invoke('get-wsl-distros'),
 
   onProjectLog: (cb) => ipcRenderer.on('project-log', (_, data) => cb(data)),
   onProjectStopped: (cb) => ipcRenderer.on('project-stopped', (_, data) => cb(data)),

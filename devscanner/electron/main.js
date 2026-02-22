@@ -11,6 +11,58 @@ app.disableHardwareAcceleration()
 
 let mainWindow
 
+// --- WSL Support ---
+
+function isWslPath(p) {
+  return process.platform === 'win32' && /^\\\\wsl/i.test(p)
+}
+
+function parseWslPath(p) {
+  // \\wsl$\Ubuntu\home\user → { distro: 'Ubuntu', linuxPath: '/home/user' }
+  // \\wsl.localhost\Ubuntu\home\user → same
+  const match = p.match(/^\\\\wsl(?:\$|\.localhost)\\([^\\]+)(.*)/i)
+  if (!match) return null
+  return {
+    distro: match[1],
+    linuxPath: match[2].replace(/\\/g, '/') || '/'
+  }
+}
+
+function execInContext(command, options) {
+  if (options.cwd && isWslPath(options.cwd)) {
+    const parsed = parseWslPath(options.cwd)
+    if (parsed) {
+      return execSync(
+        `wsl.exe -d ${parsed.distro} --cd "${parsed.linuxPath}" -- ${command}`,
+        { ...options, cwd: undefined }
+      )
+    }
+  }
+  return execSync(command, options)
+}
+
+function spawnInContext(command, args, options) {
+  if (options?.cwd && isWslPath(options.cwd)) {
+    const parsed = parseWslPath(options.cwd)
+    if (parsed) {
+      const wslArgs = ['-d', parsed.distro, '--cd', parsed.linuxPath, '--']
+      // Pass extra env vars via `env` command
+      if (options.env) {
+        const extras = []
+        for (const [k, v] of Object.entries(options.env)) {
+          if (process.env[k] !== v) extras.push(`${k}=${v}`)
+        }
+        if (extras.length > 0) wslArgs.push('env', ...extras)
+      }
+      wslArgs.push(command, ...args)
+      return spawn('wsl.exe', wslArgs, {
+        ...options, cwd: undefined, env: undefined, shell: false
+      })
+    }
+  }
+  return spawn(command, args, options)
+}
+
 // --- Settings Persistence ---
 
 function getSettingsPath() {
@@ -158,14 +210,14 @@ function getGitInfo(projectPath) {
     const gitDir = path.join(projectPath, '.git')
     if (!fs.existsSync(gitDir)) return null
 
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+    const branch = execInContext('git rev-parse --abbrev-ref HEAD', {
       cwd: projectPath,
       encoding: 'utf-8',
       timeout: 5000
     }).trim()
 
     const commits = parseInt(
-      execSync('git rev-list --count HEAD', {
+      execInContext('git rev-list --count HEAD', {
         cwd: projectPath,
         encoding: 'utf-8',
         timeout: 5000
@@ -672,11 +724,12 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         return { success: false, error: 'No npm scripts found in package.json' }
       }
 
-      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-      proc = spawn(npmCmd, ['run', scriptName], {
+      const useWsl = isWslPath(npmCwd)
+      const npmCmd = process.platform === 'win32' && !useWsl ? 'npm.cmd' : 'npm'
+      proc = spawnInContext(npmCmd, ['run', scriptName], {
         cwd: npmCwd,
         env: { ...process.env, PORT: String(portNum) },
-        shell: process.platform === 'win32'
+        shell: process.platform === 'win32' && !useWsl
       })
     } else if (method === 'docker') {
       const hasCompose =
@@ -689,15 +742,15 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         if (requestedServices && requestedServices.length > 0) {
           args.push(...requestedServices)
         }
-        proc = spawn('docker-compose', args, {
+        proc = spawnInContext('docker-compose', args, {
           cwd: projectPath,
-          shell: process.platform === 'win32'
+          shell: process.platform === 'win32' && !isWslPath(projectPath)
         })
       } else {
         const imageName = `devscanner-${path.basename(projectPath).toLowerCase()}`
-        const buildProc = spawn('docker', ['build', '-t', imageName, '.'], {
+        const buildProc = spawnInContext('docker', ['build', '-t', imageName, '.'], {
           cwd: projectPath,
-          shell: process.platform === 'win32'
+          shell: process.platform === 'win32' && !isWslPath(projectPath)
         })
 
         buildProc.stdout.on('data', (chunk) => {
@@ -727,11 +780,11 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
               return
             }
 
-            const runProc = spawn('docker', [
+            const runProc = spawnInContext('docker', [
               'run', '--rm', '-p', `${portNum}:${portNum}`, imageName
             ], {
               cwd: projectPath,
-              shell: process.platform === 'win32'
+              shell: process.platform === 'win32' && !isWslPath(projectPath)
             })
 
             attachProcessListeners(runProc, projectPath, instanceId)
@@ -826,14 +879,15 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
         fs.existsSync(path.join(projectPath, 'docker-compose.yaml'))
 
       if (hasCompose) {
-        spawn('docker-compose', ['down'], {
+        spawnInContext('docker-compose', ['down'], {
           cwd: projectPath,
-          shell: process.platform === 'win32'
+          shell: process.platform === 'win32' && !isWslPath(projectPath)
         })
       } else {
         const imageName = `devscanner-${path.basename(projectPath).toLowerCase()}`
-        spawn('docker', ['stop', imageName], {
-          shell: process.platform === 'win32'
+        spawnInContext('docker', ['stop', imageName], {
+          cwd: projectPath,
+          shell: process.platform === 'win32' && !isWslPath(projectPath)
         })
       }
     }
@@ -885,6 +939,16 @@ ipcMain.handle('get-settings', async () => {
 ipcMain.handle('save-settings', async (event, settings) => {
   saveSettings(settings)
   return { success: true }
+})
+
+ipcMain.handle('get-wsl-distros', async () => {
+  if (process.platform !== 'win32') return []
+  try {
+    const output = execSync('wsl.exe -l -q', { encoding: 'utf-8', timeout: 5000 })
+    return output.replace(/\0/g, '').split('\n').map(l => l.trim()).filter(Boolean)
+  } catch {
+    return []
+  }
 })
 
 // --- Port Scanner ---

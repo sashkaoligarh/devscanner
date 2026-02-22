@@ -45,6 +45,10 @@ function makeLogKey(projectPath, instanceId) {
   return `${projectPath}::${instanceId}`
 }
 
+function isWslPath(p) {
+  return typeof p === 'string' && /^\\\\wsl/i.test(p)
+}
+
 // Safe electron API wrapper
 const electron = {
   get available() { return !!window.electron },
@@ -58,6 +62,7 @@ const electron = {
   killPortProcess: (o) => window.electron?.killPortProcess?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   getSettings: () => window.electron?.getSettings?.() ?? Promise.resolve({}),
   saveSettings: (s) => window.electron?.saveSettings?.(s) ?? Promise.resolve({ success: true }),
+  getWslDistros: () => window.electron?.getWslDistros?.() ?? Promise.resolve([]),
   onProjectLog: (cb) => window.electron?.onProjectLog?.(cb),
   onProjectStopped: (cb) => window.electron?.onProjectStopped?.(cb),
   removeProjectLogListener: () => window.electron?.removeProjectLogListener?.(),
@@ -619,7 +624,10 @@ function ProjectCard({
 
   return (
     <div className={`project-card${isRunning ? ' running' : ''}`}>
-      <div className="project-name">{project.name}</div>
+      <div className="project-name">
+        {project.name}
+        {isWslPath(project.path) && <span className="wsl-badge">WSL</span>}
+      </div>
 
       {(project.type === 'docker-compose' || project.type === 'monorepo') && (
         <div className="project-type-badge">{project.type}</div>
