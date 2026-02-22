@@ -195,9 +195,18 @@ export default function App() {
   // Close WSL dropdown on outside click
   useEffect(() => {
     if (!wslMenuOpen) return
-    const handleClick = () => setWslMenuOpen(false)
-    document.addEventListener('click', handleClick)
-    return () => document.removeEventListener('click', handleClick)
+    const handleClick = (e) => {
+      if (e.target.closest('.wsl-dropdown-wrapper')) return
+      setWslMenuOpen(false)
+    }
+    // Delay to avoid catching the same click that opened the menu
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleClick)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('click', handleClick)
+    }
   }, [wslMenuOpen])
 
   const handleChooseFolder = useCallback(async () => {
@@ -446,16 +455,16 @@ export default function App() {
           {navTab === 'projects' && (
             <>
               {wslDistros.length > 0 && (
-                <div style={{ position: 'relative' }}>
+                <div className="wsl-dropdown-wrapper" style={{ position: 'relative' }}>
                   <button
                     className="btn btn-wsl"
-                    onClick={() => setWslMenuOpen(prev => !prev)}
+                    onClick={(e) => { e.stopPropagation(); setWslMenuOpen(prev => !prev) }}
                   >
                     <Terminal size={14} />
                     WSL
                   </button>
                   {wslMenuOpen && (
-                    <div className="wsl-dropdown">
+                    <div className="wsl-dropdown" onClick={(e) => e.stopPropagation()}>
                       {wslDistros.map(d => (
                         <button
                           key={d}
