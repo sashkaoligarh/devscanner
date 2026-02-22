@@ -53,10 +53,10 @@ function execInContext(command, options) {
   if (options.cwd && isWslPath(options.cwd)) {
     const parsed = parseWslPath(options.cwd)
     if (parsed) {
-      // Use bash -lc to get login shell with proper PATH (nvm, etc.)
+      // Use bash -lic to get login shell with proper PATH (nvm, etc.)
       const escaped = command.replace(/"/g, '\\"')
       return execSync(
-        `wsl.exe -d ${parsed.distro} --cd "${parsed.linuxPath}" -- bash -lc "${escaped}"`,
+        `wsl.exe -d ${parsed.distro} --cd "${parsed.linuxPath}" -- bash -lic "${escaped}"`,
         { ...options, cwd: undefined }
       )
     }
@@ -68,7 +68,7 @@ function spawnInContext(command, args, options) {
   if (options?.cwd && isWslPath(options.cwd)) {
     const parsed = parseWslPath(options.cwd)
     if (parsed) {
-      // Build command string for bash -lc (login shell for proper PATH)
+      // Build command string for bash -lic (login shell for proper PATH)
       const envPrefix = []
       if (options.env) {
         for (const [k, v] of Object.entries(options.env)) {
@@ -80,7 +80,7 @@ function spawnInContext(command, args, options) {
         ? envPrefix.join(' && ') + ' && ' + cmdParts.join(' ')
         : cmdParts.join(' ')
 
-      const wslArgs = ['-d', parsed.distro, '--cd', parsed.linuxPath, '--', 'bash', '-lc', fullCmd]
+      const wslArgs = ['-d', parsed.distro, '--cd', parsed.linuxPath, '--', 'bash', '-lic', fullCmd]
       return spawn('wsl.exe', wslArgs, {
         ...options, cwd: undefined, env: undefined, shell: false
       })
@@ -984,7 +984,7 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
       if (parsed && entry.port) {
         try {
           execSync(
-            `wsl.exe -d ${parsed.distro} -- bash -lc "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
+            `wsl.exe -d ${parsed.distro} -- bash -lic "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
             { timeout: 5000 }
           )
         } catch { /* best effort */ }
@@ -1384,7 +1384,7 @@ app.on('before-quit', () => {
           if (parsed && entry.port) {
             try {
               execSync(
-                `wsl.exe -d ${parsed.distro} -- bash -lc "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
+                `wsl.exe -d ${parsed.distro} -- bash -lic "fuser -k ${entry.port}/tcp 2>/dev/null; exit 0"`,
                 { timeout: 3000 }
               )
             } catch { /* best effort */ }
