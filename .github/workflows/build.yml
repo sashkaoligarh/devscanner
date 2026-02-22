@@ -3,10 +3,6 @@ name: Build & Release
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: write
@@ -41,8 +37,23 @@ jobs:
         working-directory: devscanner
         run: npx vite build
 
-      - name: Build Electron app
+      - name: Build & upload Electron app
         working-directory: devscanner
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder ${{ matrix.platform }} --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: npx electron-builder ${{ matrix.platform }} --publish always
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from package.json
+        id: version
+        run: echo "version=v$(node -p "require('./devscanner/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.version.outputs.version }}" --draft=false --repo "${{ github.repository }}"
