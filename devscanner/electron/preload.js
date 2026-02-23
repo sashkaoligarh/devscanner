@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electron', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   getHostInfo: () => ipcRenderer.invoke('get-host-info'),
+  checkWslLocalhost: () => ipcRenderer.invoke('check-wsl-localhost'),
+  fixWslLocalhost: () => ipcRenderer.invoke('fix-wsl-localhost'),
   getWslDistros: () => ipcRenderer.invoke('get-wsl-distros'),
   selectWslFolder: (distro) => ipcRenderer.invoke('select-wsl-folder', distro),
 
@@ -37,10 +39,15 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   checkDocker: (opts) => ipcRenderer.invoke('check-docker', opts),
-  dockerListContainers: () => ipcRenderer.invoke('docker-list-containers'),
+  dockerListContainers: (opts) => ipcRenderer.invoke('docker-list-containers', opts),
   dockerContainerAction: (opts) => ipcRenderer.invoke('docker-container-action', opts),
   dockerStreamLogs: (opts) => ipcRenderer.invoke('docker-stream-logs', opts),
   dockerStopLogs: (opts) => ipcRenderer.invoke('docker-stop-logs', opts),
+  gitInfo: (opts) => ipcRenderer.invoke('git-info', opts),
+  gitFetch: (opts) => ipcRenderer.invoke('git-fetch', opts),
+  gitPull: (opts) => ipcRenderer.invoke('git-pull', opts),
+  getNpmScripts: (opts) => ipcRenderer.invoke('get-npm-scripts', opts),
+  runNpmScript: (opts) => ipcRenderer.invoke('run-npm-script', opts),
 
   onDockerLog: (cb) => ipcRenderer.on('docker-log', (_, data) => cb(data)),
   onDockerLogEnd: (cb) => ipcRenderer.on('docker-log-end', (_, data) => cb(data)),

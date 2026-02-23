@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn, execSync } = require('child_process')
@@ -178,6 +178,19 @@ function saveSettings(settings) {
     // silently fail
   }
 }
+// --- Notifications & Badge ---
+
+function updateBadgeCount() {
+  let count = 0
+  for (const [, instances] of runningProcesses) count += instances.size
+  try { app.setBadgeCount(count) } catch { /* not supported on all platforms */ }
+}
+
+function devNotify(title, body, silent = false) {
+  if (!Notification.isSupported()) return
+  try { new Notification({ title, body, silent }).show() } catch { /* ignore */ }
+}
+
 // Map<projectPath, Map<instanceId, ProcessEntry>>
 const runningProcesses = new Map()
 
@@ -626,6 +639,19 @@ function parseDockerCompose(projectPath) {
         }
       }
 
+      // Parse environment
+      if (config.environment) {
+        if (Array.isArray(config.environment)) {
+          service.environment = config.environment.map(e => {
+            const idx = String(e).indexOf('=')
+            if (idx === -1) return { key: String(e), value: '' }
+            return { key: String(e).substring(0, idx), value: String(e).substring(idx + 1) }
+          })
+        } else if (typeof config.environment === 'object') {
+          service.environment = Object.entries(config.environment).map(([k, v]) => ({ key: k, value: String(v ?? '') }))
+        }
+      }
+
       // Parse depends_on
       if (config.depends_on) {
         if (Array.isArray(config.depends_on)) {
@@ -835,19 +861,34 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       const isNext = /\bnext\b/.test(scriptCmd)
 
       const useWsl = isWslPath(npmCwd)
+      // When the project is in WSL (accessed from Windows), or DevScanner itself
+      // runs inside WSL, add --host 0.0.0.0 so the dev server binds to all
+      // interfaces — required for WSL2 port proxy to forward the port to Windows.
+      const needsHost = isRunningInsideWsl || useWsl
+
       const npmCmd = process.platform === 'win32' && !useWsl ? 'npm.cmd' : 'npm'
       const npmArgs = ['run', scriptName, '--']
       if (isVite) {
         npmArgs.push('--port', String(portNum))
+        if (needsHost) npmArgs.push('--host', '0.0.0.0')
       } else if (isNext) {
         npmArgs.push('-p', String(portNum))
+        // Next.js uses -H for host
+        if (needsHost) npmArgs.push('-H', '0.0.0.0')
       } else {
         npmArgs.push('--port', String(portNum))
+        // Generic fallback — PORT env var below handles most other frameworks
       }
       console.log('[DevScanner] npm launch:', npmCmd, npmArgs.join(' '), '| cwd:', npmCwd, '| script:', scriptCmd)
       proc = spawnInContext(npmCmd, npmArgs, {
         cwd: npmCwd,
-        env: { ...process.env, PORT: String(portNum) },
+        env: {
+          ...process.env,
+          PORT: String(portNum),
+          // HOST env var: used by many frameworks (Express, Fastify, etc.)
+          // 0.0.0.0 = bind all interfaces so WSL2 port proxy can forward to Windows
+          ...(needsHost ? { HOST: '0.0.0.0' } : {})
+        },
         shell: process.platform === 'win32' && !useWsl
       })
     } else if (method === 'docker') {
@@ -941,6 +982,10 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       startedAt: Date.now(),
       background: !!background
     })
+    updateBadgeCount()
+    if (!background) {
+      devNotify('DevScanner — Service Starting', `${instanceId} launched on port ${portNum}`, true)
+    }
 
     return { success: true, data: { pid: proc.pid, port: portNum } }
   } catch (err) {
@@ -1018,8 +1063,12 @@ function attachProcessListeners(proc, projectPath, instanceId, options = {}) {
 
   proc.on('close', (code) => {
     deleteProcessEntry(projectPath, instanceId)
+    updateBadgeCount()
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('project-stopped', { projectPath, instanceId, code, background })
+    }
+    if (!background && code !== 0 && code !== null) {
+      devNotify('DevScanner — Process Crashed', `${instanceId} exited with code ${code}`)
     }
   })
 
@@ -1148,6 +1197,51 @@ ipcMain.handle('get-host-info', async () => {
   return {
     isWsl: isRunningInsideWsl,
     wslIp: wslHostIp
+  }
+})
+
+function getWslConfigPath() {
+  // Get Windows USERPROFILE path and convert to WSL-accessible path
+  const winProfile = execSync('cmd.exe /c "echo %USERPROFILE%"', { encoding: 'utf-8', timeout: 3000 }).trim()
+  const wslPath = execSync(`wslpath -u "${winProfile.replace(/\\/g, '\\\\')}"`, { encoding: 'utf-8', timeout: 3000 }).trim()
+  return `${wslPath}/.wslconfig`
+}
+
+ipcMain.handle('check-wsl-localhost', async () => {
+  if (!isRunningInsideWsl) return { available: false }
+  try {
+    const wslconfigPath = getWslConfigPath()
+    let content = ''
+    try { content = fs.readFileSync(wslconfigPath, 'utf-8') } catch { /* file doesn't exist */ }
+    const match = content.match(/^\s*localhostForwarding\s*=\s*(\w+)/im)
+    const forwarding = match ? match[1].toLowerCase() === 'true' : null
+    return { available: true, forwarding, wslconfigPath }
+  } catch (err) {
+    return { available: false, error: err.message }
+  }
+})
+
+ipcMain.handle('fix-wsl-localhost', async () => {
+  if (!isRunningInsideWsl) return { success: false, error: 'Not running in WSL' }
+  try {
+    const wslconfigPath = getWslConfigPath()
+    let content = ''
+    try { content = fs.readFileSync(wslconfigPath, 'utf-8') } catch { /* will create */ }
+
+    if (/^\[wsl2\]/im.test(content)) {
+      if (/^\s*localhostForwarding\s*=/im.test(content)) {
+        content = content.replace(/^\s*localhostForwarding\s*=.*/im, 'localhostForwarding=true')
+      } else {
+        content = content.replace(/(\[wsl2\])/i, '$1\nlocalhostForwarding=true')
+      }
+    } else {
+      content = content.trimEnd() + (content.length > 0 ? '\n\n' : '') + '[wsl2]\nlocalhostForwarding=true\n'
+    }
+
+    fs.writeFileSync(wslconfigPath, content, 'utf-8')
+    return { success: true, wslconfigPath }
+  } catch (err) {
+    return { success: false, error: err.message }
   }
 })
 
@@ -1407,14 +1501,24 @@ ipcMain.handle('check-docker', async (event, { projectPath } = {}) => {
   }
 })
 
-ipcMain.handle('docker-list-containers', async () => {
-  if (!isDockerAvailable()) {
+ipcMain.handle('docker-list-containers', async (event, { projectPath } = {}) => {
+  const useWslCtx = process.platform === 'win32' && projectPath && isWslPath(projectPath)
+  const docker = projectPath ? isDockerAvailableInContext(projectPath) : isDockerAvailable()
+  if (!docker) {
     return { success: false, error: 'Docker not found. Install Docker to manage containers.' }
   }
   try {
-    const out = execSync("docker ps -a --format '{{json .}}'", {
-      encoding: 'utf-8', timeout: 10000
-    })
+    let out
+    if (useWslCtx) {
+      const parsed = parseWslPath(projectPath)
+      if (!parsed) return { success: false, error: 'Invalid WSL path' }
+      out = execSync(
+        `wsl.exe -d ${parsed.distro} -- docker ps -a --format "{{json .}}"`,
+        { encoding: 'utf-8', timeout: 10000 }
+      )
+    } else {
+      out = execSync("docker ps -a --format '{{json .}}'", { encoding: 'utf-8', timeout: 10000 })
+    }
     const containers = out.trim().split('\n').filter(Boolean).map(line => {
       try { return JSON.parse(line) } catch { return null }
     }).filter(Boolean)
@@ -1424,24 +1528,39 @@ ipcMain.handle('docker-list-containers', async () => {
   }
 })
 
-ipcMain.handle('docker-container-action', async (event, { containerId, action }) => {
+ipcMain.handle('docker-container-action', async (event, { containerId, action, projectPath }) => {
   try {
     const allowed = ['start', 'stop', 'restart', 'rm']
     if (!allowed.includes(action)) return { success: false, error: 'Invalid action' }
     if (!/^[a-f0-9]{4,64}$/i.test(containerId)) return { success: false, error: 'Invalid container ID' }
     const args = action === 'rm' ? ['rm', '-f', containerId] : [action, containerId]
-    execSync(`docker ${args.join(' ')}`, { encoding: 'utf-8', timeout: 15000 })
+    const useWslCtx = process.platform === 'win32' && projectPath && isWslPath(projectPath)
+    if (useWslCtx) {
+      const parsed = parseWslPath(projectPath)
+      if (!parsed) return { success: false, error: 'Invalid WSL path' }
+      execSync(`wsl.exe -d ${parsed.distro} -- docker ${args.join(' ')}`, { encoding: 'utf-8', timeout: 15000 })
+    } else {
+      execSync(`docker ${args.join(' ')}`, { encoding: 'utf-8', timeout: 15000 })
+    }
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
   }
 })
 
-ipcMain.handle('docker-stream-logs', async (event, { containerId }) => {
+ipcMain.handle('docker-stream-logs', async (event, { containerId, projectPath }) => {
   try {
     if (!/^[a-f0-9]{4,64}$/i.test(containerId)) return { success: false, error: 'Invalid container ID' }
     if (containerLogProcesses.has(containerId)) return { success: true }
-    const proc = spawn('docker', ['logs', '-f', '--tail', '200', containerId])
+    const useWslCtx = process.platform === 'win32' && projectPath && isWslPath(projectPath)
+    let proc
+    if (useWslCtx) {
+      const parsed = parseWslPath(projectPath)
+      if (!parsed) return { success: false, error: 'Invalid WSL path' }
+      proc = spawn('wsl.exe', ['-d', parsed.distro, '--', 'docker', 'logs', '-f', '--tail', '200', containerId])
+    } else {
+      proc = spawn('docker', ['logs', '-f', '--tail', '200', containerId])
+    }
     containerLogProcesses.set(containerId, proc)
     const send = (chunk) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1469,6 +1588,90 @@ ipcMain.handle('docker-stop-logs', async (event, { containerId }) => {
     containerLogProcesses.delete(containerId)
   }
   return { success: true }
+})
+
+// --- Git Operations ---
+
+ipcMain.handle('git-info', async (event, { projectPath }) => {
+  try {
+    const gitDir = path.join(projectPath, '.git')
+    if (!fs.existsSync(gitDir)) return null
+    let branch = 'unknown', changed = 0, ahead = 0, behind = 0
+    try {
+      branch = execInContext('git rev-parse --abbrev-ref HEAD', {
+        cwd: projectPath, encoding: 'utf-8', timeout: 3000, stdio: 'pipe'
+      }).trim()
+    } catch { /* ok */ }
+    try {
+      const status = execInContext('git status --porcelain', {
+        cwd: projectPath, encoding: 'utf-8', timeout: 3000, stdio: 'pipe'
+      })
+      changed = status.trim().split('\n').filter(Boolean).length
+    } catch { /* ok */ }
+    try {
+      const upstream = execInContext('git rev-parse --abbrev-ref @{u}', {
+        cwd: projectPath, encoding: 'utf-8', timeout: 3000, stdio: 'pipe'
+      }).trim()
+      if (upstream) {
+        const counts = execInContext(`git rev-list --left-right --count HEAD...${upstream}`, {
+          cwd: projectPath, encoding: 'utf-8', timeout: 3000, stdio: 'pipe'
+        }).trim()
+        const [a, b] = counts.split('\t').map(Number)
+        ahead = a || 0; behind = b || 0
+      }
+    } catch { /* no upstream */ }
+    return { branch, changed, ahead, behind }
+  } catch { return null }
+})
+
+ipcMain.handle('git-fetch', async (event, { projectPath }) => {
+  try {
+    execInContext('git fetch', { cwd: projectPath, encoding: 'utf-8', timeout: 20000, stdio: 'pipe' })
+    return { success: true }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+ipcMain.handle('git-pull', async (event, { projectPath }) => {
+  try {
+    const out = execInContext('git pull', { cwd: projectPath, encoding: 'utf-8', timeout: 30000, stdio: 'pipe' })
+    return { success: true, output: out }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+// --- npm Scripts ---
+
+ipcMain.handle('get-npm-scripts', async (event, { projectPath }) => {
+  try {
+    const pkgPath = path.join(projectPath, 'package.json')
+    if (!fs.existsSync(pkgPath)) return { success: false, error: 'No package.json' }
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+    const scripts = pkg.scripts || {}
+    return { success: true, data: Object.entries(scripts).map(([name, cmd]) => ({ name, cmd })) }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+ipcMain.handle('run-npm-script', async (event, { projectPath, scriptName, instanceId, port }) => {
+  try {
+    if (getProcessEntry(projectPath, instanceId)) {
+      return { success: false, error: `Instance "${instanceId}" is already running` }
+    }
+    const useWsl = isWslPath(projectPath)
+    const npmCmd = process.platform === 'win32' && !useWsl ? 'npm.cmd' : 'npm'
+    const portNum = port ? parseInt(port, 10) : null
+    const args = ['run', scriptName]
+    const proc = spawnInContext(npmCmd, args, {
+      cwd: projectPath,
+      env: { ...process.env, ...(portNum ? { PORT: String(portNum) } : {}) },
+      shell: process.platform === 'win32' && !useWsl
+    })
+    attachProcessListeners(proc, projectPath, instanceId)
+    setProcessEntry(projectPath, instanceId, {
+      process: proc, port: portNum, method: 'npm', pid: proc.pid,
+      cwd: projectPath, startedAt: Date.now()
+    })
+    updateBadgeCount()
+    return { success: true, data: { pid: proc.pid, port: portNum } }
+  } catch (err) { return { success: false, error: err.message } }
 })
 
 // --- Auto Updater ---
