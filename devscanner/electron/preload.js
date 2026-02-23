@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.removeAllListeners('update-downloaded')
   },
 
-  checkDocker: () => ipcRenderer.invoke('check-docker'),
+  checkDocker: (opts) => ipcRenderer.invoke('check-docker', opts),
   dockerListContainers: () => ipcRenderer.invoke('docker-list-containers'),
   dockerContainerAction: (opts) => ipcRenderer.invoke('docker-container-action', opts),
   dockerStreamLogs: (opts) => ipcRenderer.invoke('docker-stream-logs', opts),

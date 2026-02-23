@@ -21,7 +21,7 @@ function isDockerAvailable() {
   } catch { return false }
 }
 
-// Returns { cmd, args } for docker compose prefix, or null if not available
+// Returns { cmd, prefixArgs } for docker compose prefix, or null if not available
 function getDockerComposeCmd() {
   // Prefer docker compose plugin (no hyphen)
   try {
@@ -34,6 +34,46 @@ function getDockerComposeCmd() {
     return { cmd: 'docker-compose', prefixArgs: [] }
   } catch {}
   return null
+}
+
+// WSL-context-aware versions: if projectPath is a WSL path on Windows,
+// run detection commands inside the WSL distro instead of on the host
+function isDockerAvailableInContext(projectPath) {
+  if (process.platform === 'win32' && isWslPath(projectPath)) {
+    const parsed = parseWslPath(projectPath)
+    if (!parsed) return false
+    try {
+      execSync(
+        `wsl.exe -d ${parsed.distro} -- bash -lic "docker --version"`,
+        { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }
+      )
+      return true
+    } catch { return false }
+  }
+  return isDockerAvailable()
+}
+
+function getDockerComposeCmdInContext(projectPath) {
+  if (process.platform === 'win32' && isWslPath(projectPath)) {
+    const parsed = parseWslPath(projectPath)
+    if (!parsed) return null
+    try {
+      execSync(
+        `wsl.exe -d ${parsed.distro} -- bash -lic "docker compose version"`,
+        { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }
+      )
+      return { cmd: 'docker', prefixArgs: ['compose'] }
+    } catch {}
+    try {
+      execSync(
+        `wsl.exe -d ${parsed.distro} -- bash -lic "docker-compose --version"`,
+        { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }
+      )
+      return { cmd: 'docker-compose', prefixArgs: [] }
+    } catch {}
+    return null
+  }
+  return getDockerComposeCmd()
 }
 
 // --- WSL Support ---
@@ -816,7 +856,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         fs.existsSync(path.join(projectPath, 'docker-compose.yaml'))
 
       if (hasCompose) {
-        const composeCmd = getDockerComposeCmd()
+        const composeCmd = getDockerComposeCmdInContext(projectPath)
         if (!composeCmd) {
           return { success: false, error: 'Docker Compose not found. Install docker compose plugin (docker compose) or standalone docker-compose.' }
         }
@@ -1012,7 +1052,7 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
         fs.existsSync(path.join(projectPath, 'docker-compose.yaml'))
 
       if (hasCompose) {
-        const composeCmd = getDockerComposeCmd()
+        const composeCmd = getDockerComposeCmdInContext(projectPath)
         if (composeCmd) {
           spawnInContext(composeCmd.cmd, [...composeCmd.prefixArgs, 'down'], {
             cwd: projectPath,
@@ -1356,9 +1396,11 @@ ipcMain.handle('kill-port-process', async (event, { pid, signal }) => {
 
 const containerLogProcesses = new Map() // containerId -> process
 
-ipcMain.handle('check-docker', async () => {
-  const docker = isDockerAvailable()
-  const compose = docker ? getDockerComposeCmd() : null
+ipcMain.handle('check-docker', async (event, { projectPath } = {}) => {
+  const docker = projectPath ? isDockerAvailableInContext(projectPath) : isDockerAvailable()
+  const compose = docker
+    ? (projectPath ? getDockerComposeCmdInContext(projectPath) : getDockerComposeCmd())
+    : null
   return {
     docker,
     compose: compose ? `${compose.cmd}${compose.prefixArgs.length ? ' ' + compose.prefixArgs.join(' ') : ''}` : null

@@ -79,7 +79,7 @@ const electron = {
   installUpdate: () => window.electron?.installUpdate?.(),
   checkForUpdate: () => window.electron?.checkForUpdate?.() ?? Promise.resolve({ success: false }),
   removeUpdateListeners: () => window.electron?.removeUpdateListeners?.(),
-  checkDocker: () => window.electron?.checkDocker?.() ?? Promise.resolve({ docker: false, compose: null }),
+  checkDocker: (o) => window.electron?.checkDocker?.(o) ?? Promise.resolve({ docker: false, compose: null }),
   windowMinimize: () => window.electron?.windowMinimize?.(),
   windowMaximize: () => window.electron?.windowMaximize?.(),
   windowClose: () => window.electron?.windowClose?.(),
@@ -490,7 +490,7 @@ export default function App() {
   const handleDockerRefresh = useCallback(async () => {
     setDockerLoading(true)
     setDockerError(null)
-    const info = await electron.checkDocker()
+    const info = await electron.checkDocker(folderPath ? { projectPath: folderPath } : {})
     setDockerInfo(info)
     if (!info.docker) {
       setDockerError('Docker is not installed or not running')
