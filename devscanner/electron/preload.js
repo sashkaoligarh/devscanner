@@ -34,5 +34,25 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.removeAllListeners('update-available')
     ipcRenderer.removeAllListeners('update-download-progress')
     ipcRenderer.removeAllListeners('update-downloaded')
-  }
+  },
+
+  checkDocker: () => ipcRenderer.invoke('check-docker'),
+  dockerListContainers: () => ipcRenderer.invoke('docker-list-containers'),
+  dockerContainerAction: (opts) => ipcRenderer.invoke('docker-container-action', opts),
+  dockerStreamLogs: (opts) => ipcRenderer.invoke('docker-stream-logs', opts),
+  dockerStopLogs: (opts) => ipcRenderer.invoke('docker-stop-logs', opts),
+
+  onDockerLog: (cb) => ipcRenderer.on('docker-log', (_, data) => cb(data)),
+  onDockerLogEnd: (cb) => ipcRenderer.on('docker-log-end', (_, data) => cb(data)),
+  removeDockerLogListeners: () => {
+    ipcRenderer.removeAllListeners('docker-log')
+    ipcRenderer.removeAllListeners('docker-log-end')
+  },
+
+  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window-maximize'),
+  windowClose: () => ipcRenderer.invoke('window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  onWindowMaximized: (cb) => ipcRenderer.on('window-maximized', (_, val) => cb(val)),
+  removeWindowListeners: () => ipcRenderer.removeAllListeners('window-maximized')
 })

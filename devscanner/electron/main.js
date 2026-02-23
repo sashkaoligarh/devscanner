@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn, execSync } = require('child_process')
@@ -8,8 +8,33 @@ const { autoUpdater } = require('electron-updater')
 
 app.commandLine.appendSwitch('no-sandbox')
 app.disableHardwareAcceleration()
+Menu.setApplicationMenu(null)
 
 let mainWindow
+
+// --- Docker Detection ---
+
+function isDockerAvailable() {
+  try {
+    execSync('docker --version', { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' })
+    return true
+  } catch { return false }
+}
+
+// Returns { cmd, args } for docker compose prefix, or null if not available
+function getDockerComposeCmd() {
+  // Prefer docker compose plugin (no hyphen)
+  try {
+    execSync('docker compose version', { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' })
+    return { cmd: 'docker', prefixArgs: ['compose'] }
+  } catch {}
+  // Fallback to docker-compose standalone
+  try {
+    execSync('docker-compose --version', { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' })
+    return { cmd: 'docker-compose', prefixArgs: [] }
+  } catch {}
+  return null
+}
 
 // --- WSL Support ---
 
@@ -140,13 +165,22 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    titleBarStyle: 'hiddenInset',
+    minWidth: 800,
+    minHeight: 500,
+    frame: false,
     backgroundColor: '#0a0a0a',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js')
     }
+  })
+
+  mainWindow.on('maximize', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('window-maximized', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('window-maximized', false)
   })
 
   const isDev = !app.isPackaged
@@ -164,6 +198,16 @@ function createWindow() {
     mainWindow.focus()
   })
 }
+
+// --- Window Controls ---
+
+ipcMain.handle('window-minimize', () => mainWindow?.minimize())
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+  else mainWindow?.maximize()
+})
+ipcMain.handle('window-close', () => mainWindow?.close())
+ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() ?? false)
 
 // --- Project Analysis ---
 
@@ -236,20 +280,15 @@ function getGitInfo(projectPath) {
     const gitDir = path.join(projectPath, '.git')
     if (!fs.existsSync(gitDir)) return null
 
-    const branch = execInContext('git rev-parse --abbrev-ref HEAD', {
-      cwd: projectPath,
-      encoding: 'utf-8',
-      timeout: 5000
-    }).trim()
+    // Single command: branch on line 1, commit count on line 2
+    const output = execInContext(
+      'git rev-parse --abbrev-ref HEAD && git rev-list --count HEAD',
+      { cwd: projectPath, encoding: 'utf-8', timeout: 5000 }
+    ).trim()
 
-    const commits = parseInt(
-      execInContext('git rev-list --count HEAD', {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        timeout: 5000
-      }).trim(),
-      10
-    )
+    const lines = output.split('\n')
+    const branch = lines[0]?.trim() || 'unknown'
+    const commits = parseInt(lines[1]?.trim(), 10)
 
     return { branch, commits: isNaN(commits) ? 0 : commits }
   } catch {
@@ -712,7 +751,7 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
   }
 })
 
-ipcMain.handle('launch-project', async (event, { projectPath, port, method, instanceId, subprojectPath, dockerServices: requestedServices }) => {
+ipcMain.handle('launch-project', async (event, { projectPath, port, method, instanceId, subprojectPath, dockerServices: requestedServices, background }) => {
   try {
     const portNum = parseInt(port, 10)
     if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
@@ -759,16 +798,16 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       const npmCmd = process.platform === 'win32' && !useWsl ? 'npm.cmd' : 'npm'
       const npmArgs = ['run', scriptName, '--']
       if (isVite) {
-        npmArgs.push('--port', String(portNum), '--host')
+        npmArgs.push('--port', String(portNum))
       } else if (isNext) {
-        npmArgs.push('-p', String(portNum), '-H', '0.0.0.0')
+        npmArgs.push('-p', String(portNum))
       } else {
         npmArgs.push('--port', String(portNum))
       }
       console.log('[DevScanner] npm launch:', npmCmd, npmArgs.join(' '), '| cwd:', npmCwd, '| script:', scriptCmd)
       proc = spawnInContext(npmCmd, npmArgs, {
         cwd: npmCwd,
-        env: { ...process.env, PORT: String(portNum), HOST: '0.0.0.0' },
+        env: { ...process.env, PORT: String(portNum) },
         shell: process.platform === 'win32' && !useWsl
       })
     } else if (method === 'docker') {
@@ -777,12 +816,17 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
         fs.existsSync(path.join(projectPath, 'docker-compose.yaml'))
 
       if (hasCompose) {
-        // Support launching specific services or all
-        const args = ['up']
+        const composeCmd = getDockerComposeCmd()
+        if (!composeCmd) {
+          return { success: false, error: 'Docker Compose not found. Install docker compose plugin (docker compose) or standalone docker-compose.' }
+        }
+        // Support launching specific services or all; -d for background
+        const args = [...composeCmd.prefixArgs, 'up']
+        if (background) args.push('-d')
         if (requestedServices && requestedServices.length > 0) {
           args.push(...requestedServices)
         }
-        proc = spawnInContext('docker-compose', args, {
+        proc = spawnInContext(composeCmd.cmd, args, {
           cwd: projectPath,
           shell: process.platform === 'win32' && !isWslPath(projectPath)
         })
@@ -846,7 +890,7 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       return { success: false, error: `Unknown launch method: ${method}` }
     }
 
-    attachProcessListeners(proc, projectPath, instanceId)
+    attachProcessListeners(proc, projectPath, instanceId, { background: !!background })
 
     setProcessEntry(projectPath, instanceId, {
       process: proc,
@@ -854,14 +898,17 @@ ipcMain.handle('launch-project', async (event, { projectPath, port, method, inst
       method,
       pid: proc.pid,
       cwd: method === 'npm' ? npmCwd : projectPath,
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      background: !!background
     })
 
     return { success: true, data: { pid: proc.pid, port: portNum } }
   } catch (err) {
     if (err.code === 'ENOENT') {
-      const tool = method === 'docker' ? 'Docker' : 'npm'
-      return { success: false, error: `${tool} not found. Install ${tool} to use this launch method.` }
+      if (method === 'docker') {
+        return { success: false, error: 'Docker not found. Install Docker to use this launch method.' }
+      }
+      return { success: false, error: 'npm not found. Install Node.js/npm to use this launch method.' }
     }
     return { success: false, error: err.message }
   }
@@ -893,7 +940,8 @@ function detectPort(text) {
   return null
 }
 
-function attachProcessListeners(proc, projectPath, instanceId) {
+function attachProcessListeners(proc, projectPath, instanceId, options = {}) {
+  const { background = false } = options
   let portDetected = false
 
   function handleOutput(chunk) {
@@ -931,7 +979,7 @@ function attachProcessListeners(proc, projectPath, instanceId) {
   proc.on('close', (code) => {
     deleteProcessEntry(projectPath, instanceId)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('project-stopped', { projectPath, instanceId, code })
+      mainWindow.webContents.send('project-stopped', { projectPath, instanceId, code, background })
     }
   })
 
@@ -964,10 +1012,13 @@ ipcMain.handle('stop-project', async (event, { projectPath, instanceId }) => {
         fs.existsSync(path.join(projectPath, 'docker-compose.yaml'))
 
       if (hasCompose) {
-        spawnInContext('docker-compose', ['down'], {
-          cwd: projectPath,
-          shell: process.platform === 'win32' && !wsl
-        })
+        const composeCmd = getDockerComposeCmd()
+        if (composeCmd) {
+          spawnInContext(composeCmd.cmd, [...composeCmd.prefixArgs, 'down'], {
+            cwd: projectPath,
+            shell: process.platform === 'win32' && !wsl
+          })
+        }
       } else {
         const imageName = `devscanner-${path.basename(projectPath).toLowerCase()}`
         spawnInContext('docker', ['stop', imageName], {
@@ -1038,13 +1089,7 @@ ipcMain.handle('get-running', async () => {
 
 ipcMain.handle('open-browser', async (event, url) => {
   try {
-    let finalUrl = url
-    // Inside WSL: replace localhost with WSL IP so Windows browser can reach it
-    if (isRunningInsideWsl && wslHostIp) {
-      finalUrl = url.replace(/\/\/localhost:/,  `//${wslHostIp}:`)
-                     .replace(/\/\/127\.0\.0\.1:/, `//${wslHostIp}:`)
-    }
-    await shell.openExternal(finalUrl)
+    await shell.openExternal(url)
   } catch {
     // silently fail
   }
@@ -1307,6 +1352,83 @@ ipcMain.handle('kill-port-process', async (event, { pid, signal }) => {
   }
 })
 
+// --- Docker Container Management ---
+
+const containerLogProcesses = new Map() // containerId -> process
+
+ipcMain.handle('check-docker', async () => {
+  const docker = isDockerAvailable()
+  const compose = docker ? getDockerComposeCmd() : null
+  return {
+    docker,
+    compose: compose ? `${compose.cmd}${compose.prefixArgs.length ? ' ' + compose.prefixArgs.join(' ') : ''}` : null
+  }
+})
+
+ipcMain.handle('docker-list-containers', async () => {
+  if (!isDockerAvailable()) {
+    return { success: false, error: 'Docker not found. Install Docker to manage containers.' }
+  }
+  try {
+    const out = execSync("docker ps -a --format '{{json .}}'", {
+      encoding: 'utf-8', timeout: 10000
+    })
+    const containers = out.trim().split('\n').filter(Boolean).map(line => {
+      try { return JSON.parse(line) } catch { return null }
+    }).filter(Boolean)
+    return { success: true, data: containers }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('docker-container-action', async (event, { containerId, action }) => {
+  try {
+    const allowed = ['start', 'stop', 'restart', 'rm']
+    if (!allowed.includes(action)) return { success: false, error: 'Invalid action' }
+    if (!/^[a-f0-9]{4,64}$/i.test(containerId)) return { success: false, error: 'Invalid container ID' }
+    const args = action === 'rm' ? ['rm', '-f', containerId] : [action, containerId]
+    execSync(`docker ${args.join(' ')}`, { encoding: 'utf-8', timeout: 15000 })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('docker-stream-logs', async (event, { containerId }) => {
+  try {
+    if (!/^[a-f0-9]{4,64}$/i.test(containerId)) return { success: false, error: 'Invalid container ID' }
+    if (containerLogProcesses.has(containerId)) return { success: true }
+    const proc = spawn('docker', ['logs', '-f', '--tail', '200', containerId])
+    containerLogProcesses.set(containerId, proc)
+    const send = (chunk) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('docker-log', { containerId, data: stripAnsi(chunk.toString()) })
+      }
+    }
+    proc.stdout.on('data', send)
+    proc.stderr.on('data', send)
+    proc.on('close', () => {
+      containerLogProcesses.delete(containerId)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('docker-log-end', { containerId })
+      }
+    })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('docker-stop-logs', async (event, { containerId }) => {
+  const proc = containerLogProcesses.get(containerId)
+  if (proc) {
+    proc.kill()
+    containerLogProcesses.delete(containerId)
+  }
+  return { success: true }
+})
+
 // --- Auto Updater ---
 
 function setupAutoUpdater() {
@@ -1405,4 +1527,8 @@ app.on('before-quit', () => {
     }
   }
   runningProcesses.clear()
+  for (const [, proc] of containerLogProcesses) {
+    try { proc.kill() } catch { /* already exited */ }
+  }
+  containerLogProcesses.clear()
 })

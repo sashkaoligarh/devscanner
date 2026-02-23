@@ -18,6 +18,30 @@
   padding: 0;
 }
 
+/* Scrollbar */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text);
@@ -35,12 +59,14 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem 1.5rem;
+  padding: 0 0 0 1.5rem;
+  height: 48px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   -webkit-app-region: drag;
   position: relative;
   z-index: 10;
+  user-select: none;
 }
 
 .header-title {
@@ -57,6 +83,7 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 400px;
+  -webkit-app-region: no-drag;
 }
 
 .header-actions {
@@ -65,6 +92,41 @@ body {
   gap: 0.75rem;
   align-items: center;
   -webkit-app-region: no-drag;
+}
+
+/* Custom window controls */
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 48px;
+  margin-left: 0;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.wc-btn {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  outline: none;
+}
+
+.wc-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-text);
+}
+
+.wc-close:hover {
+  background: #c42b1c;
+  color: #fff;
 }
 
 .search-input {
@@ -468,6 +530,9 @@ body {
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .console-actions {
@@ -579,6 +644,13 @@ body {
 .launch-target-port .form-label {
   margin-bottom: 0;
   white-space: nowrap;
+}
+
+.launch-bg-toggle {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  gap: 0.35rem;
 }
 
 .form-input-sm {
@@ -1039,3 +1111,121 @@ select.form-input {
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* Docker Containers */
+
+.docker-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.docker-image {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-dim);
+  font-size: 0.72rem;
+}
+
+.docker-ports {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+}
+
+.docker-actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.docker-actions-cell {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  white-space: nowrap;
+  overflow: visible;
+  padding-right: 0.75rem;
+}
+
+.docker-row-running {
+  background: rgba(0, 255, 136, 0.02);
+}
+
+.container-state-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.container-state-running {
+  color: #00ff88;
+  border-color: rgba(0, 255, 136, 0.3);
+  background: rgba(0, 255, 136, 0.08);
+}
+
+.container-state-exited {
+  color: var(--color-text-dim);
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+.container-state-created {
+  color: #ffcc00;
+  border-color: rgba(255, 204, 0, 0.3);
+  background: rgba(255, 204, 0, 0.05);
+}
+
+.container-state-paused {
+  color: #ff8844;
+  border-color: rgba(255, 136, 68, 0.3);
+  background: rgba(255, 136, 68, 0.05);
+}
+
+.container-state-restarting {
+  color: #44aaff;
+  border-color: rgba(68, 170, 255, 0.3);
+  background: rgba(68, 170, 255, 0.05);
+}
+
+.docker-info-badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.docker-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  border: 1px solid;
+}
+
+.docker-badge-ok {
+  color: #00ff88;
+  border-color: rgba(0, 255, 136, 0.3);
+  background: rgba(0, 255, 136, 0.06);
+}
+
+.docker-badge-warn {
+  color: #ffcc00;
+  border-color: rgba(255, 204, 0, 0.3);
+  background: rgba(255, 204, 0, 0.05);
+}
+
+.docker-badge-err {
+  color: var(--color-error);
+  border-color: rgba(255, 68, 68, 0.3);
+  background: rgba(255, 68, 68, 0.05);
+}
+

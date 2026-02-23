@@ -1,6 +1,6 @@
 {
   "name": "devscanner",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Local developer tool that scans project folders and launches them via npm or Docker",
   "author": "Taratunin Oleksandr <apologize9696@gmail.com>",
   "main": "electron/main.js",
