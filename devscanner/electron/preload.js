@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('electron', {
   gitPull: (opts) => ipcRenderer.invoke('git-pull', opts),
   getNpmScripts: (opts) => ipcRenderer.invoke('get-npm-scripts', opts),
   runNpmScript: (opts) => ipcRenderer.invoke('run-npm-script', opts),
+  readEnvFile: (opts) => ipcRenderer.invoke('read-env-file', opts),
+  saveEnvFile: (opts) => ipcRenderer.invoke('save-env-file', opts),
+  listEnvFiles: (opts) => ipcRenderer.invoke('list-env-files', opts),
 
   onDockerLog: (cb) => ipcRenderer.on('docker-log', (_, data) => cb(data)),
   onDockerLogEnd: (cb) => ipcRenderer.on('docker-log-end', (_, data) => cb(data)),
@@ -55,6 +58,14 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.removeAllListeners('docker-log')
     ipcRenderer.removeAllListeners('docker-log-end')
   },
+
+  sshConnect: (opts) => ipcRenderer.invoke('ssh-connect', opts),
+  sshDisconnect: (opts) => ipcRenderer.invoke('ssh-disconnect', opts),
+  sshDiscover: (opts) => ipcRenderer.invoke('ssh-discover', opts),
+  sshExec: (opts) => ipcRenderer.invoke('ssh-exec', opts),
+  sshSaveServer: (opts) => ipcRenderer.invoke('ssh-save-server', opts),
+  sshDeleteServer: (opts) => ipcRenderer.invoke('ssh-delete-server', opts),
+  sshGetServers: () => ipcRenderer.invoke('ssh-get-servers'),
 
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),

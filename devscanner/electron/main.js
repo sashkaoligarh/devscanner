@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, safeStorage } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn, execSync } = require('child_process')
 const net = require('net')
 const yaml = require('js-yaml')
 const { autoUpdater } = require('electron-updater')
+const { Client: SSHClient } = require('ssh2')
 
 app.commandLine.appendSwitch('no-sandbox')
 app.disableHardwareAcceleration()
@@ -154,6 +155,256 @@ function spawnInContext(command, args, options) {
   return spawn(command, args, options)
 }
 
+// --- SSH Connection Pool ---
+
+const sshConnections = new Map() // serverId -> { client, ready }
+
+function sshExec(client, cmd, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('SSH command timeout')), timeout)
+    client.exec(cmd, (err, stream) => {
+      if (err) { clearTimeout(timer); return reject(err) }
+      let stdout = '', stderr = ''
+      stream.on('data', (data) => { stdout += data.toString() })
+      stream.stderr.on('data', (data) => { stderr += data.toString() })
+      stream.on('close', (code) => {
+        clearTimeout(timer)
+        resolve({ stdout, stderr, code })
+      })
+    })
+  })
+}
+
+function connectSSH(serverConfig) {
+  return new Promise((resolve, reject) => {
+    const client = new SSHClient()
+    const connectOpts = {
+      host: serverConfig.host,
+      port: serverConfig.port || 22,
+      username: serverConfig.username,
+      readyTimeout: 15000
+    }
+
+    if (serverConfig.authType === 'key') {
+      if (serverConfig.privateKeyPath) {
+        try {
+          connectOpts.privateKey = fs.readFileSync(serverConfig.privateKeyPath)
+        } catch (e) {
+          return reject(new Error(`Cannot read private key: ${e.message}`))
+        }
+      } else if (serverConfig.privateKey) {
+        connectOpts.privateKey = serverConfig.privateKey
+      }
+      if (serverConfig.passphrase) {
+        connectOpts.passphrase = serverConfig.passphrase
+      }
+    } else {
+      // Password auth
+      let password = serverConfig.password || ''
+      if (serverConfig.encryptedPassword && safeStorage.isEncryptionAvailable()) {
+        try {
+          password = safeStorage.decryptString(Buffer.from(serverConfig.encryptedPassword, 'base64'))
+        } catch { /* use raw password */ }
+      }
+      connectOpts.password = password
+    }
+
+    client.on('ready', () => {
+      sshConnections.set(serverConfig.id, { client, ready: true })
+      resolve(client)
+    })
+    client.on('error', (err) => {
+      sshConnections.delete(serverConfig.id)
+      reject(err)
+    })
+    client.on('close', () => {
+      sshConnections.delete(serverConfig.id)
+    })
+    client.connect(connectOpts)
+  })
+}
+
+function disconnectSSH(serverId) {
+  const conn = sshConnections.get(serverId)
+  if (conn) {
+    try { conn.client.end() } catch { /* already closed */ }
+    sshConnections.delete(serverId)
+  }
+}
+
+function getSSHClient(serverId) {
+  const conn = sshConnections.get(serverId)
+  return conn?.ready ? conn.client : null
+}
+
+// --- SSH Discovery Functions ---
+
+async function discoverServerOS(client) {
+  try {
+    const { stdout } = await sshExec(client, 'cat /etc/os-release 2>/dev/null || echo "ID=unknown"')
+    const info = { name: 'Unknown', id: 'unknown', version: '' }
+    for (const line of stdout.split('\n')) {
+      const [key, ...rest] = line.split('=')
+      const val = rest.join('=').replace(/^"|"$/g, '')
+      if (key === 'PRETTY_NAME') info.name = val
+      else if (key === 'ID') info.id = val
+      else if (key === 'VERSION_ID') info.version = val
+    }
+    return info
+  } catch { return { name: 'Unknown', id: 'unknown', version: '' } }
+}
+
+async function discoverDockerContainers(client) {
+  try {
+    const { stdout, code } = await sshExec(client, 'docker ps -a --format \'{{json .}}\' 2>/dev/null')
+    if (code !== 0 || !stdout.trim()) return []
+    return stdout.trim().split('\n').filter(Boolean).map(line => {
+      try { return JSON.parse(line) } catch { return null }
+    }).filter(Boolean)
+  } catch { return [] }
+}
+
+async function discoverPM2Processes(client) {
+  try {
+    const { stdout, code } = await sshExec(client, 'pm2 jlist 2>/dev/null')
+    if (code !== 0 || !stdout.trim()) return []
+    try { return JSON.parse(stdout) } catch { return [] }
+  } catch { return [] }
+}
+
+async function discoverScreenSessions(client) {
+  try {
+    const { stdout } = await sshExec(client, 'screen -ls 2>/dev/null')
+    const sessions = []
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/\t(\S+)\s+\((\w+)\)/)
+      if (m) sessions.push({ name: m[1], state: m[2] })
+    }
+    return sessions
+  } catch { return [] }
+}
+
+async function discoverSystemdServices(client) {
+  try {
+    const filter = 'nginx|apache|httpd|php-fpm|mysql|mariadb|postgres|redis|mongodb|mongod|node|pm2|docker|supervisord|gunicorn|uvicorn|memcached|rabbitmq|elasticsearch'
+    const { stdout } = await sshExec(client,
+      `systemctl list-units --type=service --no-pager --no-legend 2>/dev/null | grep -iE '${filter}'`
+    )
+    if (!stdout.trim()) return []
+    return stdout.trim().split('\n').filter(Boolean).map(line => {
+      const parts = line.trim().split(/\s+/)
+      return {
+        unit: parts[0] || '',
+        load: parts[1] || '',
+        active: parts[2] || '',
+        sub: parts[3] || '',
+        description: parts.slice(4).join(' ')
+      }
+    })
+  } catch { return [] }
+}
+
+async function discoverNginxSites(client) {
+  try {
+    const { stdout } = await sshExec(client,
+      'cat /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf 2>/dev/null'
+    )
+    if (!stdout.trim()) return []
+    const sites = []
+    let current = null
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim()
+      if (/^server\s*\{/.test(trimmed)) {
+        current = { serverName: '', root: '', proxyPass: '' }
+      }
+      if (current) {
+        const snMatch = trimmed.match(/server_name\s+(.+);/)
+        if (snMatch) current.serverName = snMatch[1]
+        const rootMatch = trimmed.match(/root\s+(.+);/)
+        if (rootMatch) current.root = rootMatch[1]
+        const ppMatch = trimmed.match(/proxy_pass\s+(.+);/)
+        if (ppMatch) current.proxyPass = ppMatch[1]
+        if (trimmed === '}' && current.serverName) {
+          sites.push({ ...current })
+          current = null
+        }
+      }
+    }
+    return sites
+  } catch { return [] }
+}
+
+async function discoverListeningPorts(client) {
+  try {
+    const { stdout } = await sshExec(client, 'ss -tlnp 2>/dev/null')
+    if (!stdout.trim()) return []
+    const results = []
+    const lines = stdout.split('\n').slice(1) // skip header
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const parts = line.trim().split(/\s+/)
+      if (parts.length < 5) continue
+      const localAddr = parts[3]
+      const lastColon = localAddr.lastIndexOf(':')
+      if (lastColon === -1) continue
+      const address = localAddr.substring(0, lastColon)
+      const port = parseInt(localAddr.substring(lastColon + 1), 10)
+      if (isNaN(port)) continue
+      let processName = '', pid = null
+      const processCol = parts.slice(5).join(' ')
+      const pidMatch = processCol.match(/pid=(\d+)/)
+      const nameMatch = processCol.match(/\("([^"]+)"/)
+      if (pidMatch) pid = parseInt(pidMatch[1], 10)
+      if (nameMatch) processName = nameMatch[1]
+      results.push({ port, address, processName, pid })
+    }
+    return results
+  } catch { return [] }
+}
+
+async function discoverProjectRoots(client) {
+  try {
+    const { stdout } = await sshExec(client,
+      'find /var/www /home /srv /opt -maxdepth 3 \\( ' +
+      '-name package.json -o -name requirements.txt -o -name composer.json ' +
+      '-o -name go.mod -o -name Cargo.toml -o -name Gemfile -o -name pom.xml ' +
+      '\\) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null',
+      20000
+    )
+    if (!stdout.trim()) return []
+    const dirMap = {}
+    for (const filePath of stdout.trim().split('\n').filter(Boolean)) {
+      const dir = filePath.substring(0, filePath.lastIndexOf('/'))
+      const manifest = filePath.substring(filePath.lastIndexOf('/') + 1)
+      if (!dirMap[dir]) dirMap[dir] = []
+      dirMap[dir].push(manifest)
+    }
+    return Object.entries(dirMap).map(([p, manifests]) => ({ path: p, manifests }))
+  } catch { return [] }
+}
+
+function generateServerTags(discovery) {
+  const tags = []
+  if (discovery.docker?.length > 0) tags.push('Docker')
+  if (discovery.pm2?.length > 0) tags.push('PM2')
+  if (discovery.screen?.length > 0) tags.push('screen')
+  if (discovery.nginx?.length > 0) tags.push('nginx')
+  const systemd = discovery.systemd || []
+  if (systemd.some(s => /php-fpm/i.test(s.unit))) tags.push('PHP')
+  if (systemd.some(s => /mysql|mariadb/i.test(s.unit))) tags.push('MySQL')
+  if (systemd.some(s => /postgres/i.test(s.unit))) tags.push('PostgreSQL')
+  if (systemd.some(s => /redis/i.test(s.unit))) tags.push('Redis')
+  if (systemd.some(s => /mongodb|mongod/i.test(s.unit))) tags.push('MongoDB')
+  if (systemd.some(s => /apache|httpd/i.test(s.unit))) tags.push('Apache')
+  if (systemd.some(s => /node/i.test(s.unit))) tags.push('Node.js')
+  const projects = discovery.projects || []
+  if (projects.some(p => p.manifests.includes('package.json')) && !tags.includes('Node.js')) tags.push('Node.js')
+  if (projects.some(p => p.manifests.includes('requirements.txt'))) tags.push('Python')
+  if (projects.some(p => p.manifests.includes('composer.json')) && !tags.includes('PHP')) tags.push('PHP')
+  if (projects.some(p => p.manifests.includes('go.mod'))) tags.push('Go')
+  return tags
+}
+
 // --- Settings Persistence ---
 
 function getSettingsPath() {
@@ -237,9 +488,10 @@ function createWindow() {
   })
 
   const isDev = !app.isPackaged
+  const devPort = process.env.PORT || '5173'
   if (isDev) {
-    console.log('Dev mode: loading http://localhost:5173')
-    mainWindow.loadURL('http://localhost:5173')
+    console.log(`Dev mode: loading http://localhost:${devPort}`)
+    mainWindow.loadURL(`http://localhost:${devPort}`)
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
@@ -670,6 +922,26 @@ function parseDockerCompose(projectPath) {
   }
 }
 
+function detectEnvFiles(dirPath) {
+  try {
+    const entries = fs.readdirSync(dirPath)
+    const envFiles = entries.filter(e => {
+      if (!e.startsWith('.env')) return false
+      try {
+        return fs.statSync(path.join(dirPath, e)).isFile()
+      } catch { return false }
+    })
+    envFiles.sort((a, b) => {
+      if (a === '.env') return -1
+      if (b === '.env') return 1
+      if (a === '.env.example') return -1
+      if (b === '.env.example') return 1
+      return a.localeCompare(b)
+    })
+    return envFiles
+  } catch { return [] }
+}
+
 function analyzeProject(projectPath) {
   try {
     const entries = fs.readdirSync(projectPath)
@@ -750,6 +1022,22 @@ function analyzeProject(projectPath) {
     // Parse docker-compose services
     const dockerServices = hasDocker ? parseDockerCompose(projectPath) : null
 
+    // Detect .env files in project root
+    const envFiles = detectEnvFiles(projectPath)
+
+    // Collect env files from subprojects
+    let subprojectEnvFiles = null
+    if (subprojects) {
+      const collected = {}
+      for (const sp of subprojects) {
+        const spEnv = detectEnvFiles(sp.path)
+        if (spEnv.length > 0) {
+          collected[sp.name] = { path: sp.path, files: spEnv }
+        }
+      }
+      if (Object.keys(collected).length > 0) subprojectEnvFiles = collected
+    }
+
     return {
       name: path.basename(projectPath),
       path: projectPath,
@@ -763,7 +1051,9 @@ function analyzeProject(projectPath) {
       git,
       stats: { sourceFiles },
       subprojects,
-      dockerServices
+      dockerServices,
+      envFiles,
+      subprojectEnvFiles
     }
   } catch {
     return null
@@ -1674,6 +1964,153 @@ ipcMain.handle('run-npm-script', async (event, { projectPath, scriptName, instan
   } catch (err) { return { success: false, error: err.message } }
 })
 
+// --- .env File Handlers ---
+
+function validateEnvFileName(fileName) {
+  if (typeof fileName !== 'string') return false
+  if (!fileName.startsWith('.env')) return false
+  if (fileName.includes('/') || fileName.includes('\\')) return false
+  if (fileName.includes('..')) return false
+  return true
+}
+
+function validateEnvPath(projectPath, fileName) {
+  const resolved = path.resolve(projectPath, fileName)
+  const normalizedProject = path.resolve(projectPath)
+  if (!resolved.startsWith(normalizedProject + path.sep) && resolved !== normalizedProject) return false
+  return true
+}
+
+ipcMain.handle('read-env-file', async (_, { projectPath, fileName }) => {
+  try {
+    if (!validateEnvFileName(fileName) || !validateEnvPath(projectPath, fileName)) {
+      return { success: false, error: 'Invalid file name' }
+    }
+    const filePath = path.join(projectPath, fileName)
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: 'File not found' }
+    }
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return { success: true, data: { content, fileName } }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+ipcMain.handle('save-env-file', async (_, { projectPath, fileName, content }) => {
+  try {
+    if (!validateEnvFileName(fileName) || !validateEnvPath(projectPath, fileName)) {
+      return { success: false, error: 'Invalid file name' }
+    }
+    const filePath = path.join(projectPath, fileName)
+    fs.writeFileSync(filePath, content, 'utf-8')
+    return { success: true }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+ipcMain.handle('list-env-files', async (_, { projectPath }) => {
+  try {
+    const files = detectEnvFiles(projectPath)
+    return { success: true, data: files }
+  } catch (err) { return { success: false, error: err.message } }
+})
+
+// --- SSH IPC Handlers ---
+
+ipcMain.handle('ssh-connect', async (_, { server }) => {
+  try {
+    if (getSSHClient(server.id)) return { success: true, data: { alreadyConnected: true } }
+    await connectSSH(server)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-disconnect', async (_, { serverId }) => {
+  try {
+    disconnectSSH(serverId)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-discover', async (_, { serverId }) => {
+  try {
+    const client = getSSHClient(serverId)
+    if (!client) return { success: false, error: 'Not connected' }
+    const [os, docker, pm2, screen, systemd, nginx, ports, projects] = await Promise.all([
+      discoverServerOS(client),
+      discoverDockerContainers(client),
+      discoverPM2Processes(client),
+      discoverScreenSessions(client),
+      discoverSystemdServices(client),
+      discoverNginxSites(client),
+      discoverListeningPorts(client),
+      discoverProjectRoots(client)
+    ])
+    const discovery = { os, docker, pm2, screen, systemd, nginx, ports, projects }
+    const tags = generateServerTags(discovery)
+    return { success: true, data: { ...discovery, tags } }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-exec', async (_, { serverId, command }) => {
+  try {
+    const client = getSSHClient(serverId)
+    if (!client) return { success: false, error: 'Not connected' }
+    const result = await sshExec(client, command, 30000)
+    return { success: true, data: result }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-save-server', async (_, { server }) => {
+  try {
+    const settings = loadSettings()
+    const servers = settings.remoteServers || []
+    const toSave = { ...server }
+    // Encrypt password
+    if (toSave.password && safeStorage.isEncryptionAvailable()) {
+      toSave.encryptedPassword = safeStorage.encryptString(toSave.password).toString('base64')
+      delete toSave.password
+    }
+    const idx = servers.findIndex(s => s.id === toSave.id)
+    if (idx >= 0) {
+      servers[idx] = { ...servers[idx], ...toSave }
+    } else {
+      servers.push(toSave)
+    }
+    saveSettings({ remoteServers: servers })
+    return { success: true, data: servers }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-delete-server', async (_, { serverId }) => {
+  try {
+    disconnectSSH(serverId)
+    const settings = loadSettings()
+    const servers = (settings.remoteServers || []).filter(s => s.id !== serverId)
+    saveSettings({ remoteServers: servers })
+    return { success: true, data: servers }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('ssh-get-servers', async () => {
+  try {
+    const settings = loadSettings()
+    return { success: true, data: settings.remoteServers || [] }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
 // --- Auto Updater ---
 
 function setupAutoUpdater() {
@@ -1776,4 +2213,9 @@ app.on('before-quit', () => {
     try { proc.kill() } catch { /* already exited */ }
   }
   containerLogProcesses.clear()
+  // Close all SSH connections
+  for (const [, conn] of sshConnections) {
+    try { conn.client.end() } catch { /* already closed */ }
+  }
+  sshConnections.clear()
 })

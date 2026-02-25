@@ -6,7 +6,9 @@ import {
   Zap, Globe, Download, Container, ScrollText, RotateCcw,
   Minus, Maximize2, Minimize2,
   Star, Database, Copy, Trash2, ArrowUp, ArrowDown,
-  GitPullRequest, Loader, CheckCircle, XCircle, Clock
+  GitPullRequest, Loader, CheckCircle, XCircle, Clock,
+  FileText, Plus, AlertTriangle, Save,
+  Server, Wifi, WifiOff, Key
 } from 'lucide-react'
 
 const LANGUAGE_COLORS = {
@@ -99,6 +101,16 @@ const electron = {
   dockerContainerAction: (o) => window.electron?.dockerContainerAction?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   dockerStreamLogs: (o) => window.electron?.dockerStreamLogs?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   dockerStopLogs: (o) => window.electron?.dockerStopLogs?.(o) ?? Promise.resolve({ success: false }),
+  readEnvFile: (o) => window.electron?.readEnvFile?.(o) ?? Promise.resolve({ success: false }),
+  saveEnvFile: (o) => window.electron?.saveEnvFile?.(o) ?? Promise.resolve({ success: false }),
+  listEnvFiles: (o) => window.electron?.listEnvFiles?.(o) ?? Promise.resolve({ success: false }),
+  sshConnect: (o) => window.electron?.sshConnect?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshDisconnect: (o) => window.electron?.sshDisconnect?.(o) ?? Promise.resolve({ success: false }),
+  sshDiscover: (o) => window.electron?.sshDiscover?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshExec: (o) => window.electron?.sshExec?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshSaveServer: (o) => window.electron?.sshSaveServer?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshDeleteServer: (o) => window.electron?.sshDeleteServer?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshGetServers: () => window.electron?.sshGetServers?.() ?? Promise.resolve({ success: false, data: [] }),
   onDockerLog: (cb) => window.electron?.onDockerLog?.(cb),
   onDockerLogEnd: (cb) => window.electron?.onDockerLogEnd?.(cb),
   removeDockerLogListeners: () => window.electron?.removeDockerLogListeners?.(),
@@ -144,6 +156,18 @@ export default function App() {
   const [wslNetOpen, setWslNetOpen] = useState(false) // WSL network popover visible
   const [wslNetFixing, setWslNetFixing] = useState(false) // fixing in progress
   const [wslNetFixed, setWslNetFixed] = useState(false) // fix applied
+  const [envModal, setEnvModal] = useState(null) // { project }
+
+  // --- Remote Servers state ---
+  const [remoteServers, setRemoteServers] = useState([])
+  const [serverConnections, setServerConnections] = useState({}) // { [serverId]: 'disconnected'|'connecting'|'connected' }
+  const [serverDiscovery, setServerDiscovery] = useState({}) // { [serverId]: discoveryResult }
+  const [activeServerId, setActiveServerId] = useState(null)
+  const [serverSubTab, setServerSubTab] = useState('services')
+  const [addServerModal, setAddServerModal] = useState(false)
+  const [serverDiscovering, setServerDiscovering] = useState({}) // { [serverId]: bool }
+  const [terminalOutput, setTerminalOutput] = useState({}) // { [serverId]: string[] }
+  const [terminalInput, setTerminalInput] = useState('')
 
   const logRef = useRef(null)
   const healthTimers = useRef({}) // { [key]: intervalId }
@@ -238,6 +262,9 @@ export default function App() {
       }
       if (settings.favorites) {
         setFavorites(new Set(settings.favorites))
+      }
+      if (settings.remoteServers) {
+        setRemoteServers(settings.remoteServers)
       }
       if (settings.lastFolder) {
         setFolderPath(settings.lastFolder)
@@ -647,6 +674,109 @@ export default function App() {
     await electron.dockerStreamLogs({ containerId: container.ID, ...ctxOpts })
   }, [folderPath])
 
+  // --- SSH Handlers ---
+
+  const handleSSHDiscover = useCallback(async (serverId) => {
+    setServerDiscovering(prev => ({ ...prev, [serverId]: true }))
+    const result = await electron.sshDiscover({ serverId })
+    if (result.success) {
+      setServerDiscovery(prev => ({ ...prev, [serverId]: result.data }))
+      // Update tags on server
+      setRemoteServers(prev => prev.map(s =>
+        s.id === serverId ? { ...s, tags: result.data.tags, discoveredServices: result.data } : s
+      ))
+      // Save updated server with tags
+      const server = remoteServers.find(s => s.id === serverId)
+      if (server) {
+        electron.sshSaveServer({ server: { ...server, tags: result.data.tags, discoveredServices: result.data, lastConnected: new Date().toISOString() } })
+      }
+    }
+    setServerDiscovering(prev => ({ ...prev, [serverId]: false }))
+    return result
+  }, [remoteServers])
+
+  const handleSSHConnect = useCallback(async (server) => {
+    setServerConnections(prev => ({ ...prev, [server.id]: 'connecting' }))
+    const result = await electron.sshConnect({ server })
+    if (result.success) {
+      setServerConnections(prev => ({ ...prev, [server.id]: 'connected' }))
+      handleSSHDiscover(server.id)
+    } else {
+      setServerConnections(prev => ({ ...prev, [server.id]: 'disconnected' }))
+      alert(`SSH connection failed: ${result.error}`)
+    }
+    return result
+  }, [handleSSHDiscover])
+
+  const handleSSHDisconnect = useCallback(async (serverId) => {
+    await electron.sshDisconnect({ serverId })
+    setServerConnections(prev => ({ ...prev, [serverId]: 'disconnected' }))
+    setServerDiscovery(prev => { const n = { ...prev }; delete n[serverId]; return n })
+  }, [])
+
+  const handleAddServer = useCallback(async (serverData) => {
+    const server = {
+      ...serverData,
+      id: `srv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      tags: [],
+      lastConnected: null,
+      discoveredServices: null
+    }
+    // Connect first
+    setServerConnections(prev => ({ ...prev, [server.id]: 'connecting' }))
+    const connectResult = await electron.sshConnect({ server })
+    if (!connectResult.success) {
+      setServerConnections(prev => ({ ...prev, [server.id]: 'disconnected' }))
+      return { success: false, error: connectResult.error }
+    }
+    setServerConnections(prev => ({ ...prev, [server.id]: 'connected' }))
+    // Save
+    const saveResult = await electron.sshSaveServer({ server })
+    if (saveResult.success) {
+      setRemoteServers(saveResult.data)
+    } else {
+      setRemoteServers(prev => [...prev, server])
+    }
+    // Discover
+    handleSSHDiscover(server.id)
+    return { success: true }
+  }, [handleSSHDiscover])
+
+  const handleDeleteServer = useCallback(async (serverId) => {
+    const result = await electron.sshDeleteServer({ serverId })
+    if (result.success) {
+      setRemoteServers(result.data)
+    } else {
+      setRemoteServers(prev => prev.filter(s => s.id !== serverId))
+    }
+    setServerConnections(prev => { const n = { ...prev }; delete n[serverId]; return n })
+    setServerDiscovery(prev => { const n = { ...prev }; delete n[serverId]; return n })
+    if (activeServerId === serverId) setActiveServerId(null)
+  }, [activeServerId])
+
+  const handleSSHExec = useCallback(async (serverId, command) => {
+    setTerminalOutput(prev => ({
+      ...prev,
+      [serverId]: [...(prev[serverId] || []), `$ ${command}`]
+    }))
+    const result = await electron.sshExec({ serverId, command })
+    if (result.success) {
+      const lines = []
+      if (result.data.stdout) lines.push(...result.data.stdout.split('\n').filter(Boolean))
+      if (result.data.stderr) lines.push(...result.data.stderr.split('\n').filter(Boolean).map(l => `[stderr] ${l}`))
+      if (result.data.code !== 0) lines.push(`[exit code: ${result.data.code}]`)
+      setTerminalOutput(prev => ({
+        ...prev,
+        [serverId]: [...(prev[serverId] || []), ...lines]
+      }))
+    } else {
+      setTerminalOutput(prev => ({
+        ...prev,
+        [serverId]: [...(prev[serverId] || []), `[error] ${result.error}`]
+      }))
+    }
+  }, [])
+
   const filteredProjects = useMemo(() => {
     let list = projects
     if (searchQuery.trim()) {
@@ -729,6 +859,14 @@ export default function App() {
             <Container size={13} />
             Docker
             {dockerContainers.length > 0 && <span className="nav-tab-badge">{dockerContainers.length}</span>}
+          </button>
+          <button
+            className={`nav-tab${navTab === 'servers' ? ' nav-tab-active' : ''}`}
+            onClick={() => setNavTab('servers')}
+          >
+            <Server size={13} />
+            Servers
+            {remoteServers.length > 0 && <span className="nav-tab-badge">{remoteServers.length}</span>}
           </button>
         </nav>
         {folderPath && navTab === 'projects' && <span className="header-path" title={folderPath}>{folderPath}</span>}
@@ -859,7 +997,27 @@ export default function App() {
         </div>
       ) : null}
 
-      {navTab === 'docker' ? (
+      {navTab === 'servers' ? (
+        <RemoteServers
+          servers={remoteServers}
+          connections={serverConnections}
+          discovery={serverDiscovery}
+          discovering={serverDiscovering}
+          activeServerId={activeServerId}
+          serverSubTab={serverSubTab}
+          terminalOutput={terminalOutput}
+          terminalInput={terminalInput}
+          onSetActiveServer={setActiveServerId}
+          onSetSubTab={setServerSubTab}
+          onConnect={handleSSHConnect}
+          onDisconnect={handleSSHDisconnect}
+          onDiscover={handleSSHDiscover}
+          onDelete={handleDeleteServer}
+          onAddServer={() => setAddServerModal(true)}
+          onExec={handleSSHExec}
+          onSetTerminalInput={setTerminalInput}
+        />
+      ) : navTab === 'docker' ? (
         <DockerContainers
           containers={dockerContainers}
           loading={dockerLoading}
@@ -961,6 +1119,7 @@ export default function App() {
                         })
                       )}
                       hostIp={hostIp}
+                      onEnvEdit={(p) => setEnvModal({ project: p })}
                     />
                   ))}
                 </div>
@@ -1013,6 +1172,20 @@ export default function App() {
           onLaunchMultiple={handleLaunchMultiple}
           onSaveConfig={(config) => handleSaveConfig(launchModal.project.path, config)}
           onClose={() => setLaunchModal(null)}
+        />
+      )}
+
+      {envModal && (
+        <EnvEditorModal
+          project={envModal.project}
+          onClose={() => setEnvModal(null)}
+        />
+      )}
+
+      {addServerModal && (
+        <AddServerModal
+          onAdd={handleAddServer}
+          onClose={() => setAddServerModal(false)}
         />
       )}
     </div>
@@ -1139,7 +1312,8 @@ function ConsoleView({ tabKey, info, logs, logRef, onStop, onOpenBrowser, health
 
 function ProjectCard({
   project, instances, onLaunch, onStop, onOpenBrowser, onViewTab, openTabs,
-  isFavorite, onToggleFavorite, health, gitInfo, onGitFetch, onGitPull, hostIp
+  isFavorite, onToggleFavorite, health, gitInfo, onGitFetch, onGitPull, hostIp,
+  onEnvEdit
 }) {
   const instanceEntries = instances ? Object.entries(instances) : []
   const isRunning = instanceEntries.length > 0
@@ -1307,6 +1481,11 @@ function ProjectCard({
             </div>
           )
         })}
+        {(project.envFiles?.length > 0 || project.subprojectEnvFiles) && (
+          <button className="btn btn-sm" onClick={() => onEnvEdit(project)}>
+            <FileText size={12} /> .env
+          </button>
+        )}
         <button className="btn btn-primary" onClick={onLaunch}>
           <Play size={12} /> Launch
         </button>
@@ -1654,6 +1833,240 @@ function DockerConsoleView({ containerId, container, logs }) {
             Loading logs...
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function EnvEditorModal({ project, onClose }) {
+  // Build directory list: root + subprojects with env files
+  const dirs = useMemo(() => {
+    const list = []
+    if (project.envFiles?.length > 0) {
+      list.push({ key: '__root__', label: project.name + ' (root)', path: project.path, files: project.envFiles })
+    }
+    if (project.subprojectEnvFiles) {
+      for (const [name, info] of Object.entries(project.subprojectEnvFiles)) {
+        list.push({ key: name, label: name, path: info.path, files: info.files })
+      }
+    }
+    // If root has no env files but subprojects do, still allow root
+    if (list.length === 0) {
+      list.push({ key: '__root__', label: project.name + ' (root)', path: project.path, files: [] })
+    }
+    return list
+  }, [project])
+
+  const [selectedDir, setSelectedDir] = useState(dirs[0]?.key || '__root__')
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [content, setContent] = useState('')
+  const [originalContent, setOriginalContent] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [error, setError] = useState(null)
+  const [fileList, setFileList] = useState(dirs[0]?.files || [])
+  const [creating, setCreating] = useState(false)
+  const [newFileName, setNewFileName] = useState('.env')
+
+  const currentDir = dirs.find(d => d.key === selectedDir) || dirs[0]
+  const isDirty = content !== originalContent
+
+  const loadFile = useCallback(async (dirPath, fileName) => {
+    setLoading(true)
+    setError(null)
+    setSaveSuccess(false)
+    const res = await electron.readEnvFile({ projectPath: dirPath, fileName })
+    if (res.success) {
+      setContent(res.data.content)
+      setOriginalContent(res.data.content)
+      setSelectedFile(fileName)
+    } else {
+      setError(res.error || 'Failed to read file')
+    }
+    setLoading(false)
+  }, [])
+
+  const refreshFileList = useCallback(async (dirPath) => {
+    const res = await electron.listEnvFiles({ projectPath: dirPath })
+    if (res.success) setFileList(res.data)
+  }, [])
+
+  // Load first file when dir changes
+  useEffect(() => {
+    if (currentDir && fileList.length > 0) {
+      loadFile(currentDir.path, fileList[0])
+    } else {
+      setSelectedFile(null)
+      setContent('')
+      setOriginalContent('')
+    }
+  }, [selectedDir]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDirChange = (dirKey) => {
+    if (isDirty && !window.confirm('You have unsaved changes. Discard?')) return
+    const dir = dirs.find(d => d.key === dirKey)
+    if (dir) {
+      setFileList(dir.files)
+      setSelectedDir(dirKey)
+      setCreating(false)
+    }
+  }
+
+  const handleFileChange = (fileName) => {
+    if (isDirty && !window.confirm('You have unsaved changes. Discard?')) return
+    loadFile(currentDir.path, fileName)
+    setCreating(false)
+  }
+
+  const handleSave = async () => {
+    if (!selectedFile || !currentDir) return
+    setSaving(true)
+    setError(null)
+    const res = await electron.saveEnvFile({
+      projectPath: currentDir.path,
+      fileName: selectedFile,
+      content
+    })
+    if (res.success) {
+      setOriginalContent(content)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2000)
+    } else {
+      setError(res.error || 'Failed to save')
+    }
+    setSaving(false)
+  }
+
+  const handleCreate = async () => {
+    const name = newFileName.trim()
+    if (!name.startsWith('.env')) {
+      setError('File name must start with .env')
+      return
+    }
+    if (fileList.includes(name)) {
+      setError('File already exists')
+      return
+    }
+    setError(null)
+    // If .env.example exists, copy its content
+    let initialContent = ''
+    if (fileList.includes('.env.example')) {
+      const res = await electron.readEnvFile({ projectPath: currentDir.path, fileName: '.env.example' })
+      if (res.success) initialContent = res.data.content
+    }
+    const saveRes = await electron.saveEnvFile({
+      projectPath: currentDir.path,
+      fileName: name,
+      content: initialContent
+    })
+    if (saveRes.success) {
+      await refreshFileList(currentDir.path)
+      setCreating(false)
+      setNewFileName('.env')
+      loadFile(currentDir.path, name)
+    } else {
+      setError(saveRes.error || 'Failed to create file')
+    }
+  }
+
+  const handleClose = () => {
+    if (isDirty && !window.confirm('You have unsaved changes. Discard?')) return
+    onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={handleClose}>
+      <div className="modal modal-env" onClick={e => e.stopPropagation()}>
+        <div className="modal-title-row">
+          <div className="modal-title"><FileText size={16} /> .env Editor</div>
+          <button className="btn btn-sm" onClick={handleClose}><X size={14} /></button>
+        </div>
+
+        <div className="env-warning">
+          <AlertTriangle size={14} />
+          <span>These files may contain secrets. Do not commit them to version control.</span>
+        </div>
+
+        {dirs.length > 1 && (
+          <div className="env-dir-selector">
+            {dirs.map(d => (
+              <button
+                key={d.key}
+                className={`env-dir-btn${selectedDir === d.key ? ' active' : ''}`}
+                onClick={() => handleDirChange(d.key)}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="env-file-tabs">
+          {fileList.map(f => (
+            <button
+              key={f}
+              className={`env-file-tab${selectedFile === f ? ' active' : ''}`}
+              onClick={() => handleFileChange(f)}
+            >
+              {f}
+            </button>
+          ))}
+          <button
+            className="env-file-tab env-file-tab-add"
+            onClick={() => setCreating(!creating)}
+            title="Create new .env file"
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+
+        {creating && (
+          <div className="env-create-row">
+            <input
+              className="form-input form-input-sm"
+              value={newFileName}
+              onChange={e => setNewFileName(e.target.value)}
+              placeholder=".env.local"
+            />
+            <button className="btn btn-primary btn-sm" onClick={handleCreate}>Create</button>
+            <button className="btn btn-sm" onClick={() => { setCreating(false); setNewFileName('.env') }}>Cancel</button>
+          </div>
+        )}
+
+        {error && <div className="form-error">{error}</div>}
+
+        {loading ? (
+          <div className="scanning-indicator"><div className="spinner" /> Loading...</div>
+        ) : selectedFile ? (
+          <textarea
+            className="env-editor"
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            spellCheck={false}
+          />
+        ) : (
+          <div className="env-empty">
+            No .env files found. Create one with the + button above.
+          </div>
+        )}
+
+        <div className="env-footer">
+          <div className="env-footer-left">
+            {isDirty && <span className="env-dirty-indicator">Unsaved changes</span>}
+            {saveSuccess && <span className="env-save-success"><CheckCircle size={12} /> Saved</span>}
+          </div>
+          <div className="modal-actions">
+            <button className="btn" onClick={handleClose}>Close</button>
+            <button
+              className="btn btn-primary"
+              disabled={!isDirty || saving}
+              onClick={handleSave}
+            >
+              <Save size={12} /> {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -2069,6 +2482,478 @@ function LaunchModal({ project, runningInstances, savedConfig, onLaunch, onLaunc
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// --- Remote Server Components ---
+
+const SERVER_TAG_COLORS = {
+  Docker: '#4488ff', PM2: '#aa44ff', nginx: '#00cc66', PHP: '#aa44ff',
+  'Node.js': '#ffcc00', MySQL: '#ff8844', PostgreSQL: '#4488ff', Redis: '#ff4444',
+  MongoDB: '#00cc66', Apache: '#cc0000', Python: '#44aaff', Go: '#66ccff',
+  screen: '#ffcc00'
+}
+
+function RemoteServers({
+  servers, connections, discovery, discovering, activeServerId, serverSubTab,
+  terminalOutput, terminalInput, onSetActiveServer, onSetSubTab,
+  onConnect, onDisconnect, onDiscover, onDelete, onAddServer, onExec, onSetTerminalInput
+}) {
+  if (activeServerId) {
+    const server = servers.find(s => s.id === activeServerId)
+    if (!server) { onSetActiveServer(null); return null }
+    const disc = discovery[activeServerId]
+    const isConnected = connections[activeServerId] === 'connected'
+    return (
+      <div className="port-scanner">
+        <div className="port-scanner-toolbar">
+          <div className="port-scanner-controls">
+            <button className="btn" onClick={() => onSetActiveServer(null)}>
+              <Package size={12} /> Back
+            </button>
+            <span className="server-detail-name">{server.name}</span>
+            <span className="server-detail-host">{server.username}@{server.host}:{server.port || 22}</span>
+            {disc?.os && <span className="server-os-badge">{disc.os.name}</span>}
+          </div>
+          <div className="port-scanner-right">
+            {isConnected ? (
+              <>
+                <button className="btn btn-sm" onClick={() => onDiscover(server.id)} disabled={discovering[server.id]}>
+                  <RefreshCw size={11} className={discovering[server.id] ? 'spin' : ''} /> Rediscover
+                </button>
+                <button className="btn btn-danger btn-sm" onClick={() => onDisconnect(server.id)}>
+                  <WifiOff size={11} /> Disconnect
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-primary btn-sm" onClick={() => onConnect(server)}>
+                <Wifi size={11} /> Connect
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isConnected && (
+          <div className="server-sub-tabs">
+            {['services', 'nginx', 'projects', 'ports', 'terminal'].map(tab => (
+              <button
+                key={tab}
+                className={`server-sub-tab${serverSubTab === tab ? ' active' : ''}`}
+                onClick={() => onSetSubTab(tab)}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!isConnected ? (
+          <div className="empty-state">
+            <WifiOff size={48} className="empty-state-icon" />
+            <div className="empty-state-text">Not connected to this server</div>
+            <button className="btn btn-primary" onClick={() => onConnect(server)}>
+              <Wifi size={14} /> Connect
+            </button>
+          </div>
+        ) : discovering[server.id] ? (
+          <div className="scanning-indicator"><div className="spinner" /> Discovering services...</div>
+        ) : serverSubTab === 'services' ? (
+          <ServerServices discovery={disc} />
+        ) : serverSubTab === 'nginx' ? (
+          <ServerNginxSites sites={disc?.nginx || []} />
+        ) : serverSubTab === 'projects' ? (
+          <ServerProjects projects={disc?.projects || []} />
+        ) : serverSubTab === 'ports' ? (
+          <ServerPorts ports={disc?.ports || []} />
+        ) : serverSubTab === 'terminal' ? (
+          <ServerTerminal
+            serverId={server.id}
+            output={terminalOutput[server.id] || []}
+            input={terminalInput}
+            onSetInput={onSetTerminalInput}
+            onExec={onExec}
+          />
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="port-scanner">
+      <div className="port-scanner-toolbar">
+        <div className="port-scanner-controls">
+          <button className="btn btn-primary" onClick={onAddServer}>
+            <Plus size={13} /> Add Server
+          </button>
+        </div>
+        <span className="port-scanner-count">
+          {servers.filter(s => connections[s.id] === 'connected').length} connected / {servers.length} server{servers.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {servers.length === 0 ? (
+        <div className="empty-state">
+          <Server size={48} className="empty-state-icon" />
+          <div className="empty-state-text">No remote servers configured</div>
+          <button className="btn btn-primary" onClick={onAddServer}>
+            <Plus size={14} /> Add Server
+          </button>
+        </div>
+      ) : (
+        <div className="main">
+          <div className="server-grid">
+            {servers.map(server => (
+              <ServerCard
+                key={server.id}
+                server={server}
+                connection={connections[server.id] || 'disconnected'}
+                discovering={discovering[server.id]}
+                onConnect={() => onConnect(server)}
+                onDisconnect={() => onDisconnect(server.id)}
+                onDelete={() => {
+                  if (window.confirm(`Delete server "${server.name}"?`)) onDelete(server.id)
+                }}
+                onSelect={() => { onSetActiveServer(server.id); onSetSubTab('services') }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ServerCard({ server, connection, discovering, onConnect, onDisconnect, onDelete, onSelect }) {
+  const isConnected = connection === 'connected'
+  const isConnecting = connection === 'connecting'
+  return (
+    <div
+      className={`server-card${isConnected ? ' server-card-connected' : ''}`}
+      onClick={isConnected ? onSelect : undefined}
+      style={isConnected ? { cursor: 'pointer' } : undefined}
+    >
+      <div className="server-card-header">
+        <div className="server-card-name">{server.name}</div>
+        <span className={`server-conn-badge server-conn-${connection}`}>
+          {isConnecting && <Loader size={10} className="spin" />}
+          {isConnected ? 'connected' : isConnecting ? 'connecting' : 'disconnected'}
+        </span>
+      </div>
+      <div className="server-card-info">
+        <span>{server.username}@{server.host}:{server.port || 22}</span>
+        <span className="server-auth-badge">
+          {server.authType === 'key' ? <Key size={10} /> : <span>***</span>}
+          {server.authType === 'key' ? ' key' : ' password'}
+        </span>
+      </div>
+      {(server.tags?.length > 0) && (
+        <div className="tags" style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+          {server.tags.map(tag => (
+            <span
+              key={tag}
+              className={`tag server-tag-${tag.toLowerCase().replace(/[^a-z0-9]/g, '')}`}
+              style={{
+                backgroundColor: `${SERVER_TAG_COLORS[tag] || '#888'}26`,
+                borderColor: SERVER_TAG_COLORS[tag] || '#888',
+                color: SERVER_TAG_COLORS[tag] || '#888'
+              }}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="server-card-footer">
+        {isConnected ? (
+          <>
+            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onSelect() }}>
+              <Terminal size={11} /> Open
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); onDisconnect() }}>
+              <WifiOff size={11} />
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={onConnect}
+            disabled={isConnecting}
+          >
+            {isConnecting ? <Loader size={11} className="spin" /> : <Wifi size={11} />}
+            {isConnecting ? 'Connecting...' : 'Connect'}
+          </button>
+        )}
+        <button className="btn btn-danger btn-sm" onClick={(e) => { e.stopPropagation(); onDelete() }}>
+          <Trash2 size={11} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AddServerModal({ onAdd, onClose }) {
+  const [name, setName] = useState('')
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('22')
+  const [username, setUsername] = useState('root')
+  const [authType, setAuthType] = useState('password')
+  const [password, setPassword] = useState('')
+  const [privateKeyPath, setPrivateKeyPath] = useState('')
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim()) return setError('Name is required')
+    if (!host.trim()) return setError('Host is required')
+    if (!username.trim()) return setError('Username is required')
+    setError(null)
+    setLoading(true)
+    const serverData = {
+      name: name.trim(),
+      host: host.trim(),
+      port: parseInt(port, 10) || 22,
+      username: username.trim(),
+      authType,
+      ...(authType === 'password' ? { password } : { privateKeyPath })
+    }
+    const result = await onAdd(serverData)
+    setLoading(false)
+    if (result.success) {
+      onClose()
+    } else {
+      setError(result.error || 'Connection failed')
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-title">Add Server</div>
+        <div className="form-group">
+          <label className="form-label">Name</label>
+          <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Production" />
+        </div>
+        <div className="form-group" style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ flex: 1 }}>
+            <label className="form-label">Host</label>
+            <input className="form-input" value={host} onChange={e => setHost(e.target.value)} placeholder="192.168.1.100" />
+          </div>
+          <div style={{ width: '80px' }}>
+            <label className="form-label">Port</label>
+            <input className="form-input" type="number" value={port} onChange={e => setPort(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Username</label>
+          <input className="form-input" value={username} onChange={e => setUsername(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Authentication</label>
+          <div className="radio-group">
+            <label className="radio-label">
+              <input type="radio" checked={authType === 'password'} onChange={() => setAuthType('password')} />
+              Password
+            </label>
+            <label className="radio-label">
+              <input type="radio" checked={authType === 'key'} onChange={() => setAuthType('key')} />
+              SSH Key
+            </label>
+          </div>
+        </div>
+        {authType === 'password' ? (
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+        ) : (
+          <div className="form-group">
+            <label className="form-label">Private Key Path</label>
+            <input className="form-input" value={privateKeyPath} onChange={e => setPrivateKeyPath(e.target.value)} placeholder="~/.ssh/id_rsa" />
+          </div>
+        )}
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={loading}>
+            {loading ? <><Loader size={12} className="spin" /> Connecting...</> : <><Wifi size={12} /> Connect & Save</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ServerServices({ discovery }) {
+  if (!discovery) return <div className="empty-state"><div className="empty-state-text">No discovery data</div></div>
+
+  const sections = [
+    { title: 'Docker Containers', data: discovery.docker, render: (items) => items.map((c, i) => (
+      <div key={i} className="server-svc-row">
+        <span className={`container-state-badge container-state-${c.State}`}>{c.State}</span>
+        <span className="server-svc-name">{c.Names}</span>
+        <span className="server-svc-detail">{c.Image}</span>
+        {c.Ports && <span className="server-svc-port">{c.Ports}</span>}
+      </div>
+    ))},
+    { title: 'PM2 Processes', data: discovery.pm2, render: (items) => items.map((p, i) => (
+      <div key={i} className="server-svc-row">
+        <span className={`container-state-badge container-state-${p.pm2_env?.status === 'online' ? 'running' : 'exited'}`}>
+          {p.pm2_env?.status || 'unknown'}
+        </span>
+        <span className="server-svc-name">{p.name}</span>
+        <span className="server-svc-detail">pid: {p.pid}</span>
+      </div>
+    ))},
+    { title: 'Screen Sessions', data: discovery.screen, render: (items) => items.map((s, i) => (
+      <div key={i} className="server-svc-row">
+        <span className={`container-state-badge container-state-${s.state === 'Attached' ? 'running' : 'exited'}`}>{s.state}</span>
+        <span className="server-svc-name">{s.name}</span>
+      </div>
+    ))},
+    { title: 'Systemd Services', data: discovery.systemd, render: (items) => items.map((s, i) => (
+      <div key={i} className="server-svc-row">
+        <span className={`container-state-badge container-state-${s.sub === 'running' ? 'running' : 'exited'}`}>{s.sub}</span>
+        <span className="server-svc-name">{s.unit}</span>
+        <span className="server-svc-detail">{s.description}</span>
+      </div>
+    ))}
+  ]
+
+  const hasSomething = sections.some(s => s.data?.length > 0)
+  if (!hasSomething) {
+    return <div className="empty-state"><div className="empty-state-text">No services discovered</div></div>
+  }
+
+  return (
+    <div className="main">
+      {sections.map(section => (
+        section.data?.length > 0 && (
+          <div key={section.title} className="server-section">
+            <div className="server-section-title">{section.title} ({section.data.length})</div>
+            <div className="server-section-list">{section.render(section.data)}</div>
+          </div>
+        )
+      ))}
+    </div>
+  )
+}
+
+function ServerNginxSites({ sites }) {
+  if (sites.length === 0) {
+    return <div className="empty-state"><div className="empty-state-text">No nginx sites found</div></div>
+  }
+  return (
+    <div className="port-table-wrapper">
+      <table className="port-table">
+        <thead>
+          <tr><th>Server Name</th><th>Root</th><th>Proxy Pass</th></tr>
+        </thead>
+        <tbody>
+          {sites.map((site, i) => (
+            <tr key={i} className="port-row">
+              <td className="port-process">{site.serverName || '—'}</td>
+              <td className="port-address">{site.root || '—'}</td>
+              <td className="port-address">{site.proxyPass || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ServerProjects({ projects }) {
+  if (projects.length === 0) {
+    return <div className="empty-state"><div className="empty-state-text">No project roots found</div></div>
+  }
+  return (
+    <div className="port-table-wrapper">
+      <table className="port-table">
+        <thead>
+          <tr><th>Path</th><th>Manifests</th></tr>
+        </thead>
+        <tbody>
+          {projects.map((p, i) => (
+            <tr key={i} className="port-row">
+              <td className="port-process">{p.path}</td>
+              <td className="port-address">{p.manifests.join(', ')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ServerPorts({ ports }) {
+  if (ports.length === 0) {
+    return <div className="empty-state"><div className="empty-state-text">No listening ports found</div></div>
+  }
+  return (
+    <div className="port-table-wrapper">
+      <table className="port-table">
+        <thead>
+          <tr><th>Port</th><th>Address</th><th>PID</th><th>Process</th></tr>
+        </thead>
+        <tbody>
+          {ports.map((p, i) => (
+            <tr key={i} className="port-row">
+              <td className="port-number">:{p.port}</td>
+              <td className="port-address">{p.address || '*'}</td>
+              <td className="port-pid">{p.pid || '—'}</td>
+              <td className="port-process">{p.processName || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ServerTerminal({ serverId, output, input, onSetInput, onExec }) {
+  const outputRef = useRef(null)
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight
+    }
+  }, [output])
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!input.trim()) return
+    onExec(serverId, input.trim())
+    onSetInput('')
+  }
+
+  return (
+    <div className="console-view">
+      <div className="console-output" ref={outputRef}>
+        {output.map((line, i) => (
+          <div
+            key={i}
+            className={`log-line${line.startsWith('[stderr]') || line.startsWith('[error]') ? ' log-line-error' : line.startsWith('$') ? ' log-line-warn' : ''}`}
+          >
+            {line}
+          </div>
+        ))}
+        {output.length === 0 && (
+          <div className="log-line" style={{ color: 'var(--color-text-dim)' }}>
+            Type a command below and press Enter...
+          </div>
+        )}
+      </div>
+      <form onSubmit={handleSubmit} className="server-terminal-input">
+        <span className="server-terminal-prompt">$</span>
+        <input
+          className="server-terminal-cmd"
+          value={input}
+          onChange={e => onSetInput(e.target.value)}
+          placeholder="Enter command..."
+          autoFocus
+        />
+      </form>
     </div>
   )
 }
