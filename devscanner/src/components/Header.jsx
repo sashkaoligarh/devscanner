@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import {
   FolderOpen, Search, Terminal, Package, Radio,
-  Globe, Container, Server
+  Globe, Container, Server, Palette
 } from 'lucide-react'
 import electron from '../electronApi'
 import WindowControls from './WindowControls'
@@ -12,6 +12,8 @@ export default function Header({
   projects, ports, dockerContainers, remoteServers,
   hostIp, wslDistros: wslDistrosProp
 }) {
+  const THEMES = ['green', 'violet']
+  const [theme, setTheme] = useState(() => localStorage.getItem('devscanner-theme') || 'green')
   const [wslDistros, setWslDistros] = useState(wslDistrosProp || [])
   const [wslMenuOpen, setWslMenuOpen] = useState(false)
   const [wslNetInfo, setWslNetInfo] = useState(null)
@@ -67,6 +69,19 @@ export default function Header({
       onSelectFolder(selected)
     }
   }, [onSelectFolder])
+
+  // Apply theme to DOM
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('devscanner-theme', theme)
+  }, [theme])
+
+  const cycleTheme = useCallback(() => {
+    setTheme(prev => {
+      const idx = THEMES.indexOf(prev)
+      return THEMES[(idx + 1) % THEMES.length]
+    })
+  }, [])
 
   const handleFixWslLocalhost = useCallback(async () => {
     setWslNetFixing(true)
@@ -211,6 +226,9 @@ export default function Header({
           </>
         )}
       </div>
+      <button className="theme-toggle" onClick={cycleTheme} title={`Theme: ${theme}`}>
+        <Palette size={14} />
+      </button>
       <WindowControls isMaximized={isMaximized} />
     </header>
   )

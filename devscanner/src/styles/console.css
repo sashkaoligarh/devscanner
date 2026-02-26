@@ -64,7 +64,7 @@
 
 .log-content {
   background: var(--color-bg);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 0.75rem;
   margin-top: 0.5rem;
   max-height: 300px;
@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 1.5rem;
+  padding: 0.45rem 1.5rem;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -114,4 +114,13 @@
 }
 
 .log-line-error { color: var(--color-error); }
-.log-line-warn { color: #ffcc00; }
+.log-line-warn { color: var(--color-warning); }
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}

@@ -43,7 +43,7 @@
   padding: 0.2rem 0.4rem;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -84,8 +84,8 @@
 }
 
 .ds-dot-healthy {
-  background: #00ff88;
-  box-shadow: 0 0 6px #00ff8866;
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-accent-dim);
 }
 
 .ds-dot-starting {
@@ -94,7 +94,7 @@
 }
 
 .ds-dot-unhealthy {
-  background: #ff4444;
+  background: var(--color-error);
 }
 
 .ds-dot-stopped {
@@ -128,7 +128,7 @@
   color: var(--color-accent);
   background: var(--color-bg);
   padding: 0.15rem 0.4rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

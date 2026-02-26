@@ -24,7 +24,7 @@
 }
 
 .wc-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--color-surface-hover);
   color: var(--color-text);
 }
 

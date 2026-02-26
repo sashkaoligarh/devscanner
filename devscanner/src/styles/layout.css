@@ -9,8 +9,8 @@
 /* Scrollbar */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -18,12 +18,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
-  border-radius: 3px;
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
+  background: var(--color-text-muted);
 }
 
 ::-webkit-scrollbar-corner {
@@ -48,7 +48,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 10px 0 10px 1.5rem;
+  padding: 12px 0 12px 1.5rem;
   height: auto;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -87,17 +87,18 @@ body {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   color: var(--color-text);
-  padding: 0.4rem 0.75rem;
-  border-radius: 4px;
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--radius-md);
   font-size: 0.8rem;
   font-family: var(--font-mono);
   width: 200px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .search-input:focus {
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-dim);
 }
 
 .main {
@@ -169,13 +170,13 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.7rem;
+  padding: 0.6rem 1.1rem;
+  font-size: 0.72rem;
   font-family: var(--font-mono);
   color: var(--color-text-dim);
   background: none;
   border: none;
-  border-right: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border-subtle);
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.2s, background 0.2s;
@@ -183,7 +184,7 @@ body {
 
 .tab:hover {
   color: var(--color-text);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-surface-hover);
 }
 
 .tab-active {
@@ -207,7 +208,7 @@ body {
   justify-content: center;
   margin-left: 0.25rem;
   padding: 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   transition: background 0.15s;
 }
 
@@ -220,7 +221,7 @@ body {
 
 .nav-tabs {
   display: flex;
-  gap: 0;
+  gap: 0.25rem;
   margin-left: 1rem;
   -webkit-app-region: no-drag;
 }
@@ -229,40 +230,40 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  padding: 0.35rem 0.75rem;
+  padding: 0.4rem 0.85rem;
   font-size: 0.75rem;
   font-family: var(--font-mono);
   color: var(--color-text-dim);
   background: none;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .nav-tab:hover {
   color: var(--color-text);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-surface-hover);
 }
 
 .nav-tab-active {
   color: var(--color-accent);
   border-color: var(--color-accent);
-  background: rgba(0, 255, 136, 0.05);
+  background: var(--color-accent-dim);
 }
 
 .nav-tab-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   font-size: 0.6rem;
   font-weight: 700;
   background: var(--color-accent);
   color: var(--color-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
 }
 
 /* Spin animation for refresh icon */
@@ -279,8 +280,8 @@ select.form-input {
 .wsl-badge {
   display: inline-block;
   font-size: 0.55rem;
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
   background: rgba(130, 80, 255, 0.15);
   color: #a78bfa;
   border: 1px solid rgba(130, 80, 255, 0.3);
@@ -312,16 +313,16 @@ select.form-input {
   min-width: 160px;
   background: var(--color-surface);
   border: 1px solid rgba(130, 80, 255, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-popup);
 }
 
 .wsl-dropdown-item {
   display: block;
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.55rem 0.85rem;
   font-size: 0.75rem;
   font-family: var(--font-mono);
   color: var(--color-text);
@@ -360,10 +361,10 @@ select.form-input {
   min-width: 260px;
   background: var(--color-surface);
   border: 1px solid rgba(130, 80, 255, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  padding: 0.75rem;
+  box-shadow: var(--shadow-popup);
+  padding: 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -394,15 +395,15 @@ select.form-input {
   font-size: 0.72rem;
   color: #a78bfa;
   background: rgba(130, 80, 255, 0.1);
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-xs);
 }
 
 .wsl-net-status {
   font-size: 0.72rem;
   font-weight: 500;
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-xs);
 }
 
 .wsl-net-status.ok {
@@ -437,4 +438,28 @@ select.form-input {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   color: #e2e8f0;
+}
+
+/* ===== Theme toggle ===== */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
 }
