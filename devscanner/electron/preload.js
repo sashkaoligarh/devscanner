@@ -52,6 +52,16 @@ contextBridge.exposeInMainWorld('electron', {
   saveEnvFile: (opts) => ipcRenderer.invoke('save-env-file', opts),
   listEnvFiles: (opts) => ipcRenderer.invoke('list-env-files', opts),
 
+  dockerServicesCatalog: () => ipcRenderer.invoke('docker-services-catalog'),
+  dockerServicesConfig: (opts) => ipcRenderer.invoke('docker-services-config', opts),
+  dockerServicesSave: (opts) => ipcRenderer.invoke('docker-services-save', opts),
+  dockerServicesStart: (opts) => ipcRenderer.invoke('docker-services-start', opts),
+  dockerServicesStop: (opts) => ipcRenderer.invoke('docker-services-stop', opts),
+  dockerServicesStatus: (opts) => ipcRenderer.invoke('docker-services-status', opts),
+  dockerServicesInjectEnv: (opts) => ipcRenderer.invoke('docker-services-inject-env', opts),
+  onDockerServicesHealth: (cb) => ipcRenderer.on('docker-services-health', (_, data) => cb(data)),
+  removeDockerServicesHealthListener: () => ipcRenderer.removeAllListeners('docker-services-health'),
+
   onDockerLog: (cb) => ipcRenderer.on('docker-log', (_, data) => cb(data)),
   onDockerLogEnd: (cb) => ipcRenderer.on('docker-log-end', (_, data) => cb(data)),
   removeDockerLogListeners: () => {
@@ -66,6 +76,49 @@ contextBridge.exposeInMainWorld('electron', {
   sshSaveServer: (opts) => ipcRenderer.invoke('ssh-save-server', opts),
   sshDeleteServer: (opts) => ipcRenderer.invoke('ssh-delete-server', opts),
   sshGetServers: () => ipcRenderer.invoke('ssh-get-servers'),
+
+  // Remote project launch (Phase 3)
+  sshAnalyzeProject: (opts) => ipcRenderer.invoke('ssh-analyze-project', opts),
+  sshLaunchProject: (opts) => ipcRenderer.invoke('ssh-launch-project', opts),
+  sshStopProject: (opts) => ipcRenderer.invoke('ssh-stop-project', opts),
+  sshGetRemoteRunning: (opts) => ipcRenderer.invoke('ssh-get-remote-running', opts),
+  onRemoteProjectLog: (cb) => ipcRenderer.on('remote-project-log', (_, data) => cb(data)),
+  onRemoteProjectStopped: (cb) => ipcRenderer.on('remote-project-stopped', (_, data) => cb(data)),
+  removeRemoteProjectLogListener: () => ipcRenderer.removeAllListeners('remote-project-log'),
+  removeRemoteProjectStoppedListener: () => ipcRenderer.removeAllListeners('remote-project-stopped'),
+
+  // Nginx manager (Phase 4)
+  sshNginxList: (opts) => ipcRenderer.invoke('ssh-nginx-list', opts),
+  sshNginxRead: (opts) => ipcRenderer.invoke('ssh-nginx-read', opts),
+  sshNginxSave: (opts) => ipcRenderer.invoke('ssh-nginx-save', opts),
+  sshNginxEnable: (opts) => ipcRenderer.invoke('ssh-nginx-enable', opts),
+  sshNginxDisable: (opts) => ipcRenderer.invoke('ssh-nginx-disable', opts),
+  sshNginxDelete: (opts) => ipcRenderer.invoke('ssh-nginx-delete', opts),
+  sshNginxTest: (opts) => ipcRenderer.invoke('ssh-nginx-test', opts),
+  sshNginxReload: (opts) => ipcRenderer.invoke('ssh-nginx-reload', opts),
+  sshNginxInstall: (opts) => ipcRenderer.invoke('ssh-nginx-install', opts),
+  sshCertbotInstall: (opts) => ipcRenderer.invoke('ssh-certbot-install', opts),
+  sshCertbotRun: (opts) => ipcRenderer.invoke('ssh-certbot-run', opts),
+
+  // Service management (Phase 6)
+  sshPm2Action: (opts) => ipcRenderer.invoke('ssh-pm2-action', opts),
+  sshPm2Logs: (opts) => ipcRenderer.invoke('ssh-pm2-logs', opts),
+  sshDockerAction: (opts) => ipcRenderer.invoke('ssh-docker-action', opts),
+  sshDockerLogs: (opts) => ipcRenderer.invoke('ssh-docker-logs', opts),
+  sshSystemdAction: (opts) => ipcRenderer.invoke('ssh-systemd-action', opts),
+  sshSystemdLogs: (opts) => ipcRenderer.invoke('ssh-systemd-logs', opts),
+
+  // Quick deploy (Phase 5)
+  selectDeployFolder: () => ipcRenderer.invoke('select-deploy-folder'),
+  sshUploadFolder: (opts) => ipcRenderer.invoke('ssh-upload-folder', opts),
+  sshQuickDeploy: (opts) => ipcRenderer.invoke('ssh-quick-deploy', opts),
+  sshFullDeploy: (opts) => ipcRenderer.invoke('ssh-full-deploy', opts),
+  sshRemoveProject: (opts) => ipcRenderer.invoke('ssh-remove-project', opts),
+  sshUndeploy: (opts) => ipcRenderer.invoke('ssh-undeploy', opts),
+  onUploadProgress: (cb) => ipcRenderer.on('upload-progress', (_, data) => cb(data)),
+  removeUploadProgressListener: () => ipcRenderer.removeAllListeners('upload-progress'),
+  onDeployLog: (cb) => ipcRenderer.on('deploy-log', (_, data) => cb(data)),
+  removeDeployLogListener: () => ipcRenderer.removeAllListeners('deploy-log'),
 
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),

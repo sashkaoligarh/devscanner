@@ -1,0 +1,165 @@
+/* --- .env Editor Modal --- */
+
+.modal-env {
+  width: 600px;
+  max-width: 95vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.env-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px solid rgba(255, 170, 0, 0.2);
+  border-radius: 4px;
+  color: #ffaa00;
+  font-size: 0.72rem;
+  margin-bottom: 0.75rem;
+}
+
+.env-dir-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.env-dir-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.env-dir-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.env-dir-btn.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: rgba(0, 255, 136, 0.06);
+}
+
+.env-file-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.env-file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-dim);
+  background: none;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.env-file-tab:last-child {
+  border-right: none;
+}
+
+.env-file-tab:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.env-file-tab.active {
+  color: var(--color-accent);
+  background: rgba(0, 255, 136, 0.06);
+}
+
+.env-file-tab-add {
+  padding: 0.35rem 0.5rem;
+}
+
+.env-create-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.env-create-row .form-input-sm {
+  flex: 1;
+}
+
+.env-editor {
+  flex: 1;
+  min-height: 300px;
+  max-height: 50vh;
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  padding: 0.75rem;
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+}
+
+.env-editor:focus {
+  border-color: var(--color-accent);
+}
+
+.env-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+}
+
+.env-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  gap: 0.75rem;
+}
+
+.env-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.env-dirty-indicator {
+  font-size: 0.7rem;
+  color: #ffaa00;
+  font-weight: 500;
+}
+
+.env-save-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  font-weight: 500;
+}

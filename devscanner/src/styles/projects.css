@@ -1,0 +1,279 @@
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.project-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.project-card:hover {
+  border-color: rgba(0, 255, 136, 0.3);
+}
+
+.project-card.running {
+  border-color: rgba(0, 255, 136, 0.4);
+}
+
+.project-name {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.project-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  margin-bottom: 0.75rem;
+}
+
+.project-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.project-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+/* Instance rows in project card */
+
+.instance-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* Subprojects info */
+
+.subprojects-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.7rem;
+}
+
+.subprojects-label {
+  color: var(--color-text-dim);
+}
+
+.subproject-name {
+  color: var(--color-text);
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+/* Docker-compose badge */
+
+.project-type-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(0, 150, 255, 0.15);
+  color: #4488ff;
+  border: 1px solid rgba(0, 150, 255, 0.3);
+  margin-bottom: 0.5rem;
+}
+
+/* --- Favorites --- */
+
+.project-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.project-name-row .project-name {
+  margin-bottom: 0;
+}
+
+.project-card.favorited {
+  border-color: rgba(255, 204, 0, 0.25);
+}
+
+/* --- DB connection strings --- */
+
+.db-connections {
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.db-conn-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  background: rgba(0, 150, 255, 0.04);
+  border: 1px solid rgba(0, 150, 255, 0.12);
+  border-radius: 3px;
+  padding: 0.25rem 0.4rem;
+}
+
+.db-conn-type {
+  color: #4488ff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-conn-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Git badges --- */
+
+.git-changed {
+  color: #ffcc00;
+  font-size: 0.7rem;
+}
+
+.git-ahead {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--color-accent);
+  font-size: 0.7rem;
+}
+
+.git-behind {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: #ff8844;
+  font-size: 0.7rem;
+}
+
+.git-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Launch modal - multi-target */
+
+.launch-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.launch-target {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.launch-target.checked {
+  border-color: var(--color-accent);
+  background: rgba(0, 255, 136, 0.03);
+}
+
+.launch-target.running {
+  border-color: rgba(0, 255, 136, 0.2);
+  opacity: 0.6;
+}
+
+.launch-target-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.launch-target-method {
+  font-size: 0.6rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-dim);
+}
+
+.launch-target-running {
+  font-size: 0.6rem;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.launch-target-port {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.launch-target-port .form-label {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.launch-bg-toggle {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  gap: 0.35rem;
+}
+
+/* Docker info in launch modal */
+
+.launch-target-info {
+  margin-top: 0.375rem;
+  padding-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.65rem;
+}
+
+.launch-target-svc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.launch-target-image {
+  color: var(--color-text-dim);
+  font-size: 0.6rem;
+}
+
+.launch-target-port-map {
+  color: var(--color-accent);
+  font-size: 0.6rem;
+  padding: 0.05rem 0.3rem;
+  background: rgba(0, 255, 136, 0.08);
+  border-radius: 2px;
+}
+
+.launch-target-deps {
+  color: var(--color-text-dim);
+  font-size: 0.6rem;
+  font-style: italic;
+}

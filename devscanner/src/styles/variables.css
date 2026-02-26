@@ -1,0 +1,11 @@
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-border: #1e1e1e;
+  --color-accent: #00ff88;
+  --color-text: #e8e8e8;
+  --color-text-dim: #888888;
+  --color-error: #ff4444;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-heading: 'Syne', sans-serif;
+}
