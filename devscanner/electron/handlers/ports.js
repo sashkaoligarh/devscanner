@@ -1,13 +1,13 @@
 const { execSync } = require('child_process')
-const { scanListeningPorts, probePort } = require('../utils/port-utils')
+const { scanListeningPortsAsync, probePort } = require('../utils/port-utils')
 const { COMMON_DEV_PORTS } = require('../constants')
 const { runningProcesses } = require('../utils/process')
 
 function registerPortsHandlers(ipcMain, ctx) {
   ipcMain.handle('scan-ports', async (event, { mode }) => {
     try {
-      // First try OS-level scan for process info
-      const osResults = scanListeningPorts()
+      // First try OS-level scan for process info (async to avoid blocking main thread)
+      const osResults = await scanListeningPortsAsync()
 
       if (mode === 'common') {
         // Filter to common dev ports, or probe them if OS scan returned nothing

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   saveSettings: vi.fn()
 }))
 
-// For globals, the handler destructures at require-time: const { isRunningInsideWsl, wslHostIp } = require(...)
+// For globals, the handler destructures at require-time: const { isRunningInsideWsl, wslHostIpReady } = require(...)
 // Destructuring copies values, so we need a way to make re-registration pick up new values.
 // We'll load the handler fresh each time by clearing the require cache.
 
@@ -41,7 +41,7 @@ Module._load = function (request, parent, isMain) {
   return originalLoad.apply(this, arguments)
 }
 
-let currentGlobals = { isRunningInsideWsl: false, wslHostIp: null }
+let currentGlobals = { isRunningInsideWsl: false, wslHostIpReady: Promise.resolve(null) }
 
 function loadHandler() {
   // Clear cache so handler re-requires its dependencies
@@ -145,7 +145,7 @@ describe('settings handlers', () => {
 
     it('should reflect WSL environment when running inside WSL', async () => {
       // Temporarily re-enable our Module._load shim to load with WSL globals
-      currentGlobals = { isRunningInsideWsl: true, wslHostIp: '172.20.0.1' }
+      currentGlobals = { isRunningInsideWsl: true, wslHostIpReady: Promise.resolve('172.20.0.1') }
       const prevLoad = Module._load
       Module._load = function (request, parent, isMain) {
         if (request === 'electron') {
@@ -181,7 +181,7 @@ describe('settings handlers', () => {
       })
 
       // Reset
-      currentGlobals = { isRunningInsideWsl: false, wslHostIp: null }
+      currentGlobals = { isRunningInsideWsl: false, wslHostIpReady: Promise.resolve(null) }
     })
   })
 

@@ -1,5 +1,5 @@
 const fs = require('fs')
-const { execSync } = require('child_process')
+const { exec } = require('child_process')
 
 let mainWindow = null
 
@@ -12,12 +12,17 @@ const isRunningInsideWsl = (() => {
 })()
 
 let wslHostIp = null
-if (isRunningInsideWsl) {
-  try {
-    wslHostIp = execSync('hostname -I', { encoding: 'utf-8', timeout: 2000 }).trim().split(' ')[0] || null
-    console.log('[DevScanner] Running inside WSL, host IP:', wslHostIp)
-  } catch { /* ok */ }
-}
+const wslHostIpReady = isRunningInsideWsl
+  ? new Promise(resolve => {
+    exec('hostname -I', { encoding: 'utf-8', timeout: 2000 }, (err, stdout) => {
+      if (!err && stdout) {
+        wslHostIp = stdout.trim().split(' ')[0] || null
+        console.log('[DevScanner] Running inside WSL, host IP:', wslHostIp)
+      }
+      resolve(wslHostIp)
+    })
+  })
+  : Promise.resolve(null)
 
 function getMainWindow() {
   return mainWindow
@@ -31,5 +36,6 @@ module.exports = {
   getMainWindow,
   setMainWindow,
   isRunningInsideWsl,
-  wslHostIp
+  get wslHostIp() { return wslHostIp },
+  wslHostIpReady
 }

@@ -3,7 +3,7 @@ import { Plus, Server } from 'lucide-react'
 import ServerCard from './ServerCard'
 import ServerDetail from './ServerDetail'
 
-export default function RemoteServers({
+function RemoteServers({
   servers, connections, discovery, discovering, activeServerId, serverSubTab,
   terminalOutput, terminalInput, onSetActiveServer, onSetSubTab,
   onConnect, onDisconnect, onDiscover, onDelete, onAddServer, onExec, onSetTerminalInput,
@@ -81,3 +81,5 @@ export default function RemoteServers({
     </div>
   )
 }
+
+export default React.memo(RemoteServers)

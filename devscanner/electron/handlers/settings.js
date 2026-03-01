@@ -1,6 +1,6 @@
 const { shell } = require('electron')
 const { loadSettings, saveSettings } = require('../utils/settings-store')
-const { isRunningInsideWsl, wslHostIp } = require('../globals')
+const { isRunningInsideWsl, wslHostIpReady } = require('../globals')
 
 function registerSettingsHandlers(ipcMain, ctx) {
   ipcMain.handle('get-settings', async () => {
@@ -21,9 +21,10 @@ function registerSettingsHandlers(ipcMain, ctx) {
   })
 
   ipcMain.handle('get-host-info', async () => {
+    const wslIp = await wslHostIpReady
     return {
       isWsl: isRunningInsideWsl,
-      wslIp: wslHostIp
+      wslIp
     }
   })
 }

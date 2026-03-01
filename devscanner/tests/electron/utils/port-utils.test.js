@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 
 // Import the pure parsing functions directly
-const { parseSSOutput, parseLsofOutput, parseNetstatOutput } = require('../../../electron/utils/port-utils')
+const { parseSSOutput, parseLsofOutput, parseNetstatOutput, parseNetstatLines } = require('../../../electron/utils/port-utils')
 
 describe('port-utils', () => {
   describe('parseSSOutput', () => {
@@ -74,6 +74,23 @@ postgres  678 user    5u  IPv4   78901      0t0  TCP 127.0.0.1:5432 (LISTEN)`
 
     it('should return empty for empty output', () => {
       expect(parseNetstatOutput('')).toEqual([])
+    })
+  })
+
+  describe('parseNetstatLines', () => {
+    it('should parse netstat output without calling tasklist', () => {
+      const output = `  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    1234
+  TCP    127.0.0.1:5432  0.0.0.0:0    LISTENING    5678
+  TCP    0.0.0.0:80      0.0.0.0:0    ESTABLISHED  9999`
+
+      const results = parseNetstatLines(output)
+      expect(results).toHaveLength(2)
+      expect(results[0]).toEqual({ port: 3000, pid: 1234, processName: null, address: '0.0.0.0' })
+      expect(results[1]).toEqual({ port: 5432, pid: 5678, processName: null, address: '127.0.0.1' })
+    })
+
+    it('should return empty for empty output', () => {
+      expect(parseNetstatLines('')).toEqual([])
     })
   })
 })

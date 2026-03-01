@@ -76,14 +76,25 @@ export default function useProjects() {
     })
   }, [])
 
-  // Load git info for all projects when project list changes
+  // Load git info for all projects when project list changes (batched to avoid N re-renders)
   useEffect(() => {
     if (!electron.available || projects.length === 0) return
-    projects.forEach(p => {
-      if (!p.git) return
-      electron.gitInfo({ projectPath: p.path }).then(info => {
-        if (info) setGitInfoCache(prev => ({ ...prev, [p.path]: info }))
-      })
+    const gitProjects = projects.filter(p => p.git)
+    if (gitProjects.length === 0) return
+    Promise.allSettled(
+      gitProjects.map(p =>
+        electron.gitInfo({ projectPath: p.path }).then(info => ({ path: p.path, info }))
+      )
+    ).then(results => {
+      const batch = {}
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value.info) {
+          batch[r.value.path] = r.value.info
+        }
+      }
+      if (Object.keys(batch).length > 0) {
+        setGitInfoCache(prev => ({ ...prev, ...batch }))
+      }
     })
   }, [projects])
 

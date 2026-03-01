@@ -42,7 +42,7 @@ function getDbConnectionString(service) {
   return null
 }
 
-export default function ProjectCard({
+function ProjectCard({
   project, instances, onLaunch, onStop, onOpenBrowser, onViewTab, openTabs,
   isFavorite, onToggleFavorite, health, gitInfo, onGitFetch, onGitPull, hostIp,
   onEnvEdit, onDockerServices
@@ -228,3 +228,5 @@ export default function ProjectCard({
     </div>
   )
 }
+
+export default React.memo(ProjectCard)

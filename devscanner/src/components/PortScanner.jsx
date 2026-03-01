@@ -3,7 +3,7 @@ import {
   Search, RefreshCw, Zap, Globe, ExternalLink, Square, Skull, Radio
 } from 'lucide-react'
 
-export default function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, onSetMode, onKill, onOpenBrowser }) {
+function PortScanner({ ports, scanning, scanMode, error, killingPids, onScan, onSetMode, onKill, onOpenBrowser }) {
   const [portSearch, setPortSearch] = useState('')
 
   const filteredPorts = useMemo(() => {
@@ -152,3 +152,5 @@ export default function PortScanner({ ports, scanning, scanMode, error, killingP
     </div>
   )
 }
+
+export default React.memo(PortScanner)

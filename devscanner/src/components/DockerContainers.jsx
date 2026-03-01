@@ -3,7 +3,7 @@ import {
   Play, Square, RefreshCw, Container, ScrollText, RotateCcw
 } from 'lucide-react'
 
-export default function DockerContainers({ containers, loading, error, dockerInfo, actionLoading, onRefresh, onAction, onViewLogs }) {
+function DockerContainers({ containers, loading, error, dockerInfo, actionLoading, onRefresh, onAction, onViewLogs }) {
   const runningCount = containers.filter(c => c.State === 'running').length
 
   return (
@@ -128,3 +128,5 @@ export default function DockerContainers({ containers, loading, error, dockerInf
     </div>
   )
 }
+
+export default React.memo(DockerContainers)

@@ -1,5 +1,8 @@
 const net = require('net')
-const { execSync } = require('child_process')
+const { execSync, execFile } = require('child_process')
+const { promisify } = require('util')
+
+const execFileAsync = promisify(execFile)
 
 function parseSSOutput(stdout) {
   const lines = stdout.split('\n').filter(l => l.trim())
@@ -93,6 +96,71 @@ function scanListeningPorts() {
   }
 }
 
+async function fetchProcessMap() {
+  try {
+    const { stdout } = await execFileAsync('tasklist', ['/FO', 'CSV', '/NH'], {
+      encoding: 'utf-8', timeout: 10000, windowsHide: true
+    })
+    const map = new Map()
+    for (const line of stdout.split('\n')) {
+      const match = line.match(/"([^"]+)","(\d+)"/)
+      if (match) map.set(parseInt(match[2], 10), match[1])
+    }
+    return map
+  } catch {
+    return new Map()
+  }
+}
+
+function parseNetstatLines(stdout) {
+  const lines = stdout.split('\n').filter(l => l.includes('LISTENING'))
+  const results = []
+  for (const line of lines) {
+    const parts = line.trim().split(/\s+/)
+    const localAddr = parts[1]
+    const lastColon = localAddr.lastIndexOf(':')
+    if (lastColon === -1) continue
+    const port = parseInt(localAddr.substring(lastColon + 1), 10)
+    const address = localAddr.substring(0, lastColon)
+    const pid = parseInt(parts[parts.length - 1], 10)
+    results.push({ port, pid: isNaN(pid) ? null : pid, processName: null, address })
+  }
+  return results
+}
+
+async function scanListeningPortsAsync() {
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await execFileAsync('netstat', ['-ano'], {
+        encoding: 'utf-8', timeout: 15000, windowsHide: true
+      })
+      const results = parseNetstatLines(stdout)
+      const pids = new Set(results.map(r => r.pid).filter(Boolean))
+      if (pids.size > 0) {
+        const processMap = await fetchProcessMap()
+        for (const r of results) {
+          if (r.pid && processMap.has(r.pid)) {
+            r.processName = processMap.get(r.pid)
+          }
+        }
+      }
+      return results
+    } else if (process.platform === 'darwin') {
+      const { stdout } = await execFileAsync('lsof', ['-iTCP', '-sTCP:LISTEN', '-n', '-P'], {
+        encoding: 'utf-8', timeout: 10000
+      })
+      return parseLsofOutput(stdout)
+    } else {
+      const { stdout } = await execFileAsync('ss', ['-tlnp'], {
+        encoding: 'utf-8', timeout: 10000
+      })
+      return parseSSOutput(stdout)
+    }
+  } catch {
+    return []
+  }
+}
+
 function probePort(port, timeout = 200) {
   return new Promise(resolve => {
     const sock = new net.Socket()
@@ -117,6 +185,8 @@ module.exports = {
   parseSSOutput,
   parseLsofOutput,
   parseNetstatOutput,
+  parseNetstatLines,
   scanListeningPorts,
+  scanListeningPortsAsync,
   probePort
 }
