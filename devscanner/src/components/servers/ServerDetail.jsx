@@ -3,6 +3,7 @@ import { Package, RefreshCw, Wifi, WifiOff, Play, Square, RotateCcw, Trash2, Fil
 import RemoteProjectManager from './RemoteProjectManager'
 import NginxManager from './NginxManager'
 import QuickDeploy from './QuickDeploy'
+import AuthorizedKeys from './AuthorizedKeys'
 import electron from '../../electronApi'
 
 export default function ServerDetail({
@@ -42,7 +43,7 @@ export default function ServerDetail({
 
       {isConnected && (
         <div className="server-sub-tabs">
-          {['services', 'nginx', 'projects', 'deploy', 'ports', 'terminal'].map(tab => (
+          {['services', 'nginx', 'projects', 'deploy', 'keys', 'ports', 'terminal'].map(tab => (
             <button
               key={tab}
               className={`server-sub-tab${serverSubTab === tab ? ' active' : ''}`}
@@ -78,6 +79,8 @@ export default function ServerDetail({
         />
       ) : serverSubTab === 'deploy' ? (
         <QuickDeploy serverId={server.id} onRefresh={() => onDiscover(server.id)} />
+      ) : serverSubTab === 'keys' ? (
+        <AuthorizedKeys serverId={server.id} />
       ) : serverSubTab === 'ports' ? (
         <ServerPorts ports={disc?.ports || []} />
       ) : serverSubTab === 'terminal' ? (

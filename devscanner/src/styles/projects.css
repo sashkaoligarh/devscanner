@@ -1,7 +1,11 @@
 .project-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
+}
+
+.project-grid > .project-card {
+  flex: 0 0 calc(50% - 0.5rem);
 }
 
 .project-card {

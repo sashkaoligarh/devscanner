@@ -12,7 +12,14 @@ export default function Header({
   projects, ports, dockerContainers, remoteServers,
   hostIp, wslDistros: wslDistrosProp
 }) {
-  const THEMES = ['green', 'violet']
+  const THEMES = [
+    { id: 'green', label: 'Green' },
+    { id: 'violet', label: 'Violet' },
+    { id: 'paper', label: 'Paper' },
+    { id: 'red', label: 'Red' },
+    { id: 'pink', label: 'Pink' },
+    { id: 'ash', label: 'Ash' },
+  ]
   const [theme, setTheme] = useState(() => localStorage.getItem('devscanner-theme') || 'green')
   const [wslDistros, setWslDistros] = useState(wslDistrosProp || [])
   const [wslMenuOpen, setWslMenuOpen] = useState(false)
@@ -76,11 +83,8 @@ export default function Header({
     localStorage.setItem('devscanner-theme', theme)
   }, [theme])
 
-  const cycleTheme = useCallback(() => {
-    setTheme(prev => {
-      const idx = THEMES.indexOf(prev)
-      return THEMES[(idx + 1) % THEMES.length]
-    })
+  const handleThemeChange = useCallback((e) => {
+    setTheme(e.target.value)
   }, [])
 
   const handleFixWslLocalhost = useCallback(async () => {
@@ -226,9 +230,12 @@ export default function Header({
           </>
         )}
       </div>
-      <button className="theme-toggle" onClick={cycleTheme} title={`Theme: ${theme}`}>
-        <Palette size={14} />
-      </button>
+      <div className="theme-select-wrapper">
+        <Palette size={14} className="theme-select-icon" />
+        <select className="theme-select" value={theme} onChange={handleThemeChange} title="Theme">
+          {THEMES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+      </div>
       <WindowControls isMaximized={isMaximized} />
     </header>
   )

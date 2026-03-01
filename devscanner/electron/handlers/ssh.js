@@ -82,6 +82,11 @@ function registerSshHandlers(ipcMain, ctx) {
         toSave.encryptedPassword = safeStorage.encryptString(toSave.password).toString('base64')
         delete toSave.password
       }
+      // Encrypt private key
+      if (toSave.privateKey && safeStorage.isEncryptionAvailable()) {
+        toSave.encryptedPrivateKey = safeStorage.encryptString(toSave.privateKey).toString('base64')
+        delete toSave.privateKey
+      }
       const idx = servers.findIndex(s => s.id === toSave.id)
       if (idx >= 0) {
         servers[idx] = { ...servers[idx], ...toSave }

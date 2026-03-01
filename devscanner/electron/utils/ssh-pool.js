@@ -31,14 +31,18 @@ function connectSSH(serverConfig) {
     }
 
     if (serverConfig.authType === 'key') {
-      if (serverConfig.privateKeyPath) {
+      if (serverConfig.encryptedPrivateKey && safeStorage.isEncryptionAvailable()) {
+        try {
+          connectOpts.privateKey = safeStorage.decryptString(Buffer.from(serverConfig.encryptedPrivateKey, 'base64'))
+        } catch { /* fallback to raw key */ }
+      } else if (serverConfig.privateKey) {
+        connectOpts.privateKey = serverConfig.privateKey
+      } else if (serverConfig.privateKeyPath) {
         try {
           connectOpts.privateKey = fs.readFileSync(serverConfig.privateKeyPath)
         } catch (e) {
           return reject(new Error(`Cannot read private key: ${e.message}`))
         }
-      } else if (serverConfig.privateKey) {
-        connectOpts.privateKey = serverConfig.privateKey
       }
       if (serverConfig.passphrase) {
         connectOpts.passphrase = serverConfig.passphrase

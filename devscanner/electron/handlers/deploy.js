@@ -1,8 +1,9 @@
-const { dialog } = require('electron')
+const { dialog, safeStorage } = require('electron')
 const { getSSHClient, sshExec, sshExecSudo, getServerPassword } = require('../utils/ssh-pool')
 const { getSFTPClient, uploadDirectory } = require('../utils/sftp-utils')
 const { generateNginxConfig, staticSiteTemplate, staticPlusProxyTemplate } = require('../utils/nginx-utils')
 const { ensureNginx, ensureNode, ensurePM2, pm2Start } = require('../utils/pm2-utils')
+const { loadSettings } = require('../utils/settings-store')
 
 function sendProgress(ctx, serverId, progress) {
   const mainWindow = ctx.mainWindow()
@@ -293,6 +294,169 @@ function registerDeployHandlers(ipcMain, ctx) {
         resultData.url = `https://${safeDomain}`
       }
 
+      return { success: true, data: resultData }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Git clone deploy: clone repo + nginx + optional SSL + optional PM2
+  ipcMain.handle('ssh-git-clone-deploy', async (_, { serverId, repoUrl, branch, deployPath, domain, deployKeyId, ssl, sslCert, sslKey, fullstack, entryFile, appName, backendPort, proxyPath }) => {
+    try {
+      const client = getSSHClient(serverId)
+      if (!client) return { success: false, error: 'Not connected' }
+      const password = getServerPassword(serverId)
+
+      const safeDomain = (domain || '').replace(/[^a-zA-Z0-9.-]/g, '')
+      if (!safeDomain) return { success: false, error: 'Invalid domain' }
+      if (!repoUrl) return { success: false, error: 'Repository URL is required' }
+
+      const remoteDir = deployPath || `/var/www/${safeDomain}`
+      const siteName = safeDomain
+      const safeBranch = (branch || 'main').replace(/[^a-zA-Z0-9._/-]/g, '')
+
+      // Step 1: Ensure git is installed
+      sendLog(ctx, serverId, '> Checking git...')
+      const gitCheck = await sshExec(client, 'which git 2>/dev/null')
+      if (gitCheck.code !== 0) {
+        sendLog(ctx, serverId, '> Installing git...')
+        await sshExecSudo(client, 'apt-get update -qq && apt-get install -y -qq git', password, 120000)
+      }
+      sendLog(ctx, serverId, '✓ git ready')
+
+      // Step 2: Ensure nginx
+      sendLog(ctx, serverId, '> Checking nginx...')
+      await ensureNginx(client, password)
+      sendLog(ctx, serverId, '✓ nginx ready')
+
+      // Step 3: Prepare deploy key if needed
+      let gitSshCmd = ''
+      let tempKeyPath = ''
+      if (deployKeyId) {
+        const settings = loadSettings()
+        const dk = (settings.deployKeys || []).find(k => k.id === deployKeyId)
+        if (dk) {
+          sendLog(ctx, serverId, '> Setting up deploy key...')
+          let privKey = dk.encryptedPrivateKey
+          if (safeStorage.isEncryptionAvailable()) {
+            try { privKey = safeStorage.decryptString(Buffer.from(dk.encryptedPrivateKey, 'base64')) } catch {}
+          }
+          tempKeyPath = '~/.ssh/deploy_key_temp'
+          const escaped = privKey.replace(/'/g, "'\\''")
+          await sshExec(client, 'mkdir -p ~/.ssh && chmod 700 ~/.ssh')
+          await sshExec(client, `echo '${escaped}' > ${tempKeyPath} && chmod 600 ${tempKeyPath}`)
+          gitSshCmd = `GIT_SSH_COMMAND='ssh -i ${tempKeyPath} -o StrictHostKeyChecking=no' `
+        }
+      }
+
+      // Step 4: Clone repository
+      sendLog(ctx, serverId, `> Cloning ${repoUrl} (branch: ${safeBranch})...`)
+      await sshExecSudo(client, `mkdir -p ${remoteDir}`, password, 10000)
+      // Remove existing contents if any
+      await sshExecSudo(client, `rm -rf ${remoteDir}`, password, 10000)
+      const cloneCmd = `${gitSshCmd}git clone --branch ${safeBranch} --depth 1 ${repoUrl} ${remoteDir}`
+      const cloneRes = await sshExec(client, cloneCmd, 120000)
+
+      // Cleanup temp key
+      if (tempKeyPath) {
+        await sshExec(client, `rm -f ${tempKeyPath}`)
+      }
+
+      if (cloneRes.code !== 0) {
+        return { success: false, error: `Git clone failed: ${(cloneRes.stderr || cloneRes.stdout).trim()}` }
+      }
+      sendLog(ctx, serverId, '✓ Repository cloned')
+
+      // Step 5: If fullstack, ensure Node/PM2, npm install, start
+      if (fullstack) {
+        sendLog(ctx, serverId, '> Setting up full stack...')
+        await ensureNode(client, password)
+        await ensurePM2(client, password)
+
+        const pkgCheck = await sshExecSudo(client, `test -f ${remoteDir}/package.json && echo yes || echo no`, password)
+        if (pkgCheck.stdout.trim() === 'yes') {
+          sendLog(ctx, serverId, '> Running npm install...')
+          await sshExecSudo(client, `cd ${remoteDir} && npm install --production`, password, 120000)
+        }
+
+        const safeName = (appName || safeDomain).replace(/[^a-zA-Z0-9_-]/g, '')
+        const safeEntry = entryFile || 'server.js'
+        sendLog(ctx, serverId, `> Starting PM2 process "${safeName}"...`)
+        await sshExecSudo(client, `pm2 delete ${safeName} 2>/dev/null; cd ${remoteDir} && pm2 start ${safeEntry} --name ${safeName}`, password, 15000)
+      }
+
+      // Step 6: Install custom SSL cert if provided
+      if (ssl === 'custom' && sslCert && sslKey) {
+        sendLog(ctx, serverId, '> Installing SSL certificate...')
+        const certDir = `/etc/ssl/${safeDomain}`
+        await sshExecSudo(client, `mkdir -p ${certDir}`, password, 5000)
+        const escapedCert = sslCert.replace(/'/g, "'\\''")
+        const escapedKey = sslKey.replace(/'/g, "'\\''")
+        await sshExecSudo(client, `echo '${escapedCert}' | tee ${certDir}/fullchain.pem > /dev/null`, password, 5000)
+        await sshExecSudo(client, `echo '${escapedKey}' | tee ${certDir}/privkey.pem > /dev/null`, password, 5000)
+        await sshExecSudo(client, `chmod 600 ${certDir}/privkey.pem`, password, 5000)
+        sendLog(ctx, serverId, '✓ SSL certificate installed')
+      }
+
+      // Step 7: Generate nginx config
+      sendLog(ctx, serverId, '> Configuring nginx...')
+      let config
+      if (fullstack) {
+        const safePort = String(parseInt(backendPort, 10) || 3000)
+        config = staticPlusProxyTemplate(safeDomain, remoteDir, safePort, proxyPath || '/api')
+      } else {
+        config = staticSiteTemplate(safeDomain, remoteDir)
+      }
+      if (ssl === 'custom' && sslCert && sslKey) {
+        config.ssl = true
+        config.listen = '443 ssl'
+        config.sslCertificate = `/etc/ssl/${safeDomain}/fullchain.pem`
+        config.sslCertificateKey = `/etc/ssl/${safeDomain}/privkey.pem`
+      }
+      const nginxContent = generateNginxConfig(config)
+      const escaped = nginxContent.replace(/'/g, "'\\''")
+      await sshExecSudo(client, `echo '${escaped}' | tee /etc/nginx/sites-available/${siteName} > /dev/null`, password, 10000)
+      await sshExecSudo(client, `ln -sf /etc/nginx/sites-available/${siteName} /etc/nginx/sites-enabled/${siteName}`, password, 5000)
+
+      // Step 8: Test & reload nginx
+      sendLog(ctx, serverId, '> Testing nginx config...')
+      const testResult = await sshExecSudo(client, 'nginx -t 2>&1', password, 10000)
+      const testOk = testResult.stdout.includes('successful') || testResult.stderr.includes('successful')
+      if (!testOk) {
+        sendLog(ctx, serverId, '✗ Nginx config test failed')
+        return { success: false, error: `Nginx config test failed: ${testResult.stdout + testResult.stderr}` }
+      }
+      await sshExecSudo(client, 'systemctl reload nginx', password, 10000)
+
+      const useHttps = ssl === 'custom' && sslCert && sslKey
+      const resultData = {
+        domain: safeDomain,
+        remoteDir,
+        branch: safeBranch,
+        url: `${useHttps ? 'https' : 'http'}://${safeDomain}`
+      }
+
+      if (fullstack) {
+        resultData.pm2Name = (appName || safeDomain).replace(/[^a-zA-Z0-9_-]/g, '')
+        resultData.backendPort = String(parseInt(backendPort, 10) || 3000)
+        resultData.proxyPath = proxyPath || '/api'
+      }
+
+      // Step 9: Certbot
+      if (ssl === 'certbot') {
+        sendLog(ctx, serverId, '> Installing certbot...')
+        await sshExecSudo(client, 'apt-get install -y -qq certbot python3-certbot-nginx', password, 120000)
+        sendLog(ctx, serverId, '> Requesting SSL certificate...')
+        const certResult = await sshExecSudo(client, `certbot --nginx -d ${safeDomain} --non-interactive --agree-tos --register-unsafely-without-email 2>&1`, password, 120000)
+        if (certResult.code !== 0) {
+          sendLog(ctx, serverId, '✗ Certbot failed (site works on HTTP)')
+          return { success: true, data: { ...resultData, sslError: 'Certbot failed: ' + (certResult.stderr || certResult.stdout) } }
+        }
+        sendLog(ctx, serverId, '✓ SSL certificate installed')
+        resultData.url = `https://${safeDomain}`
+      }
+
+      sendLog(ctx, serverId, '✓ Deployment complete')
       return { success: true, data: resultData }
     } catch (err) {
       return { success: false, error: err.message }

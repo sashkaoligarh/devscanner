@@ -77,6 +77,16 @@ contextBridge.exposeInMainWorld('electron', {
   sshDeleteServer: (opts) => ipcRenderer.invoke('ssh-delete-server', opts),
   sshGetServers: () => ipcRenderer.invoke('ssh-get-servers'),
 
+  // Authorized keys management
+  sshAuthorizedKeysList: (opts) => ipcRenderer.invoke('ssh-authorized-keys-list', opts),
+  sshAuthorizedKeysAdd: (opts) => ipcRenderer.invoke('ssh-authorized-keys-add', opts),
+  sshAuthorizedKeysRemove: (opts) => ipcRenderer.invoke('ssh-authorized-keys-remove', opts),
+
+  // Deploy keys management
+  deployKeysList: () => ipcRenderer.invoke('deploy-keys-list'),
+  deployKeysSave: (opts) => ipcRenderer.invoke('deploy-keys-save', opts),
+  deployKeysDelete: (opts) => ipcRenderer.invoke('deploy-keys-delete', opts),
+
   // Remote project launch (Phase 3)
   sshAnalyzeProject: (opts) => ipcRenderer.invoke('ssh-analyze-project', opts),
   sshLaunchProject: (opts) => ipcRenderer.invoke('ssh-launch-project', opts),
@@ -115,6 +125,7 @@ contextBridge.exposeInMainWorld('electron', {
   sshFullDeploy: (opts) => ipcRenderer.invoke('ssh-full-deploy', opts),
   sshRemoveProject: (opts) => ipcRenderer.invoke('ssh-remove-project', opts),
   sshUndeploy: (opts) => ipcRenderer.invoke('ssh-undeploy', opts),
+  sshGitCloneDeploy: (opts) => ipcRenderer.invoke('ssh-git-clone-deploy', opts),
   onUploadProgress: (cb) => ipcRenderer.on('upload-progress', (_, data) => cb(data)),
   removeUploadProgressListener: () => ipcRenderer.removeAllListeners('upload-progress'),
   onDeployLog: (cb) => ipcRenderer.on('deploy-log', (_, data) => cb(data)),

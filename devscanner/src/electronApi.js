@@ -67,6 +67,14 @@ const electron = {
   onDockerLog: (cb) => window.electron?.onDockerLog?.(cb),
   onDockerLogEnd: (cb) => window.electron?.onDockerLogEnd?.(cb),
   removeDockerLogListeners: () => window.electron?.removeDockerLogListeners?.(),
+  // Authorized keys management
+  sshAuthorizedKeysList: (o) => window.electron?.sshAuthorizedKeysList?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshAuthorizedKeysAdd: (o) => window.electron?.sshAuthorizedKeysAdd?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshAuthorizedKeysRemove: (o) => window.electron?.sshAuthorizedKeysRemove?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  // Deploy keys management
+  deployKeysList: () => window.electron?.deployKeysList?.() ?? Promise.resolve({ success: false, data: [] }),
+  deployKeysSave: (o) => window.electron?.deployKeysSave?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  deployKeysDelete: (o) => window.electron?.deployKeysDelete?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   // Phase 3: Remote project launch
   sshAnalyzeProject: (o) => window.electron?.sshAnalyzeProject?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshLaunchProject: (o) => window.electron?.sshLaunchProject?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
@@ -100,6 +108,7 @@ const electron = {
   sshFullDeploy: (o) => window.electron?.sshFullDeploy?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshRemoveProject: (o) => window.electron?.sshRemoveProject?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshUndeploy: (o) => window.electron?.sshUndeploy?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshGitCloneDeploy: (o) => window.electron?.sshGitCloneDeploy?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshUploadFolder: (o) => window.electron?.sshUploadFolder?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   selectDeployFolder: () => window.electron?.selectDeployFolder?.() ?? Promise.resolve(null),
   onUploadProgress: (cb) => window.electron?.onUploadProgress?.(cb),

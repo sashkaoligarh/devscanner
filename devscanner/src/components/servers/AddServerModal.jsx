@@ -8,7 +8,7 @@ export default function AddServerModal({ onAdd, onClose }) {
   const [username, setUsername] = useState('root')
   const [authType, setAuthType] = useState('password')
   const [password, setPassword] = useState('')
-  const [privateKeyPath, setPrivateKeyPath] = useState('')
+  const [privateKey, setPrivateKey] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -24,7 +24,7 @@ export default function AddServerModal({ onAdd, onClose }) {
       port: parseInt(port, 10) || 22,
       username: username.trim(),
       authType,
-      ...(authType === 'password' ? { password } : { privateKeyPath })
+      ...(authType === 'password' ? { password } : { privateKey })
     }
     const result = await onAdd(serverData)
     setLoading(false)
@@ -77,8 +77,16 @@ export default function AddServerModal({ onAdd, onClose }) {
           </div>
         ) : (
           <div className="form-group">
-            <label className="form-label">Private Key Path</label>
-            <input className="form-input" value={privateKeyPath} onChange={e => setPrivateKeyPath(e.target.value)} placeholder="~/.ssh/id_rsa" />
+            <label className="form-label">Private Key</label>
+            <textarea
+              className="form-input"
+              value={privateKey}
+              onChange={e => setPrivateKey(e.target.value)}
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+              rows={5}
+              spellCheck={false}
+              style={{ fontFamily: 'monospace', fontSize: '11px', resize: 'vertical' }}
+            />
           </div>
         )}
         {error && <div className="form-error">{error}</div>}

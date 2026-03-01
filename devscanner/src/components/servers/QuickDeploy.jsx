@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { Upload, Folder, Globe, ChevronRight, Check, AlertCircle, X, Server, Lock, Shield, Trash2 } from 'lucide-react'
+import { Upload, Folder, Globe, ChevronRight, Check, AlertCircle, X, Server, Lock, Shield, Trash2, GitBranch, Key } from 'lucide-react'
 import electron from '../../electronApi'
+import DeployKeys from './DeployKeys'
 
 const STEPS = ['folder', 'config', 'review', 'deploying', 'done']
 
@@ -26,6 +27,14 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
   const [backendPort, setBackendPort] = useState('3000')
   const [proxyPath, setProxyPath] = useState('/api')
 
+  // Git clone state
+  const [repoUrl, setRepoUrl] = useState('')
+  const [branch, setBranch] = useState('main')
+  const [deployKeyId, setDeployKeyId] = useState('')
+  const [deployKeys, setDeployKeys] = useState([])
+  const [showDeployKeys, setShowDeployKeys] = useState(false)
+  const [gitFullstack, setGitFullstack] = useState(false)
+
   useEffect(() => {
     electron.onUploadProgress((data) => {
       if (data.serverId === serverId) {
@@ -42,6 +51,15 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
       electron.removeDeployLogListener()
     }
   }, [serverId])
+
+  // Load deploy keys when switching to gitclone mode
+  useEffect(() => {
+    if (mode === 'gitclone') {
+      electron.deployKeysList().then(res => {
+        if (res.success) setDeployKeys(res.data)
+      })
+    }
+  }, [mode, showDeployKeys])
 
   const handleSelectFolder = useCallback(async () => {
     const folder = await electron.selectDeployFolder()
@@ -64,7 +82,21 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
       sslKey: ssl === 'custom' ? sslKey : undefined
     }
 
-    if (mode === 'fullstack') {
+    if (mode === 'gitclone') {
+      res = await electron.sshGitCloneDeploy({
+        serverId,
+        repoUrl: repoUrl.trim(),
+        branch: branch.trim() || 'main',
+        domain: domain.trim(),
+        deployKeyId: deployKeyId || undefined,
+        fullstack: gitFullstack,
+        entryFile: gitFullstack ? (entryFile.trim() || 'server.js') : undefined,
+        appName: gitFullstack ? (appName.trim() || domain.trim().replace(/[^a-zA-Z0-9_-]/g, '')) : undefined,
+        backendPort: gitFullstack ? (backendPort.trim() || '3000') : undefined,
+        proxyPath: gitFullstack ? (proxyPath.trim() || '/api') : undefined,
+        ...sslParams
+      })
+    } else if (mode === 'fullstack') {
       res = await electron.sshFullDeploy({
         serverId,
         localPath,
@@ -93,7 +125,7 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
       setError(res.error)
       setStep('review')
     }
-  }, [serverId, localPath, domain, port, mode, entryFile, appName, backendPort, proxyPath, ssl, sslCert, sslKey, onRefresh])
+  }, [serverId, localPath, domain, port, mode, entryFile, appName, backendPort, proxyPath, ssl, sslCert, sslKey, repoUrl, branch, deployKeyId, gitFullstack, onRefresh])
 
   const [undeploying, setUndeploying] = useState(false)
 
@@ -133,6 +165,11 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
     setSsl('none')
     setSslCert('')
     setSslKey('')
+    setRepoUrl('')
+    setBranch('main')
+    setDeployKeyId('')
+    setGitFullstack(false)
+    setShowDeployKeys(false)
   }, [])
 
   const stepIndex = STEPS.indexOf(step)
@@ -142,7 +179,7 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
     <div className="deploy-wizard">
       <div className="deploy-header">
         <Upload size={14} />
-        <span>{mode === 'fullstack' ? 'Full Stack Deploy' : 'Quick Deploy'}</span>
+        <span>{mode === 'gitclone' ? 'Git Clone Deploy' : mode === 'fullstack' ? 'Full Stack Deploy' : 'Quick Deploy'}</span>
         {onClose && (
           <button className="btn btn-sm deploy-close" onClick={onClose}>
             <X size={12} />
@@ -160,8 +197,8 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
 
       {step === 'folder' && (
         <div className="deploy-body">
-          <div className="deploy-title">Select folder to deploy</div>
-          <div className="deploy-desc">Choose a local directory containing your site files.</div>
+          <div className="deploy-title">{mode === 'gitclone' ? 'Deploy from Git repository' : 'Select folder to deploy'}</div>
+          <div className="deploy-desc">{mode === 'gitclone' ? 'Clone a git repository directly to the server.' : 'Choose a local directory containing your site files.'}</div>
 
           <div className="deploy-mode-toggle">
             <button
@@ -176,15 +213,27 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
             >
               <Server size={12} /> Full Stack
             </button>
+            <button
+              className={`deploy-mode-btn${mode === 'gitclone' ? ' active' : ''}`}
+              onClick={() => setMode('gitclone')}
+            >
+              <GitBranch size={12} /> Git Clone
+            </button>
           </div>
 
-          <button className="btn btn-primary" onClick={handleSelectFolder}>
-            <Folder size={13} /> Choose Folder
-          </button>
+          {mode === 'gitclone' ? (
+            <button className="btn btn-primary" onClick={() => setStep('config')} disabled={false}>
+              <ChevronRight size={13} /> Configure
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={handleSelectFolder}>
+              <Folder size={13} /> Choose Folder
+            </button>
+          )}
         </div>
       )}
 
-      {step === 'config' && (
+      {step === 'config' && !showDeployKeys && (
         <div className="deploy-body">
           <div className="deploy-title">Configure deployment</div>
 
@@ -201,12 +250,71 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
             >
               <Server size={12} /> Full Stack
             </button>
+            <button
+              className={`deploy-mode-btn${mode === 'gitclone' ? ' active' : ''}`}
+              onClick={() => setMode('gitclone')}
+            >
+              <GitBranch size={12} /> Git Clone
+            </button>
           </div>
 
-          <div className="deploy-field">
-            <label>Local folder</label>
-            <div className="deploy-path">{localPath}</div>
-          </div>
+          {mode !== 'gitclone' && (
+            <div className="deploy-field">
+              <label>Local folder</label>
+              <div className="deploy-path">{localPath}</div>
+            </div>
+          )}
+
+          {mode === 'gitclone' && (
+            <>
+              <div className="deploy-field">
+                <label>Repository URL</label>
+                <input
+                  className="input"
+                  value={repoUrl}
+                  onChange={e => setRepoUrl(e.target.value)}
+                  placeholder="https://github.com/user/repo.git"
+                  autoFocus
+                />
+              </div>
+              <div className="deploy-field">
+                <label>Branch</label>
+                <input
+                  className="input"
+                  value={branch}
+                  onChange={e => setBranch(e.target.value)}
+                  placeholder="main"
+                  style={{ width: '150px' }}
+                />
+              </div>
+              <div className="deploy-field">
+                <label>Deploy Key (for private repos)</label>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <select
+                    className="input"
+                    value={deployKeyId}
+                    onChange={e => setDeployKeyId(e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">None (public repo)</option>
+                    {deployKeys.map(k => (
+                      <option key={k.id} value={k.id}>{k.name}</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-sm" onClick={() => setShowDeployKeys(true)} title="Manage Deploy Keys">
+                    <Key size={11} />
+                  </button>
+                </div>
+              </div>
+              <div className="deploy-field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={gitFullstack} onChange={e => setGitFullstack(e.target.checked)} />
+                  Full Stack (Node.js + PM2)
+                </label>
+              </div>
+            </>
+          )}
+
           <div className="deploy-field">
             <label>Domain</label>
             <input
@@ -214,7 +322,7 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
               value={domain}
               onChange={e => setDomain(e.target.value)}
               placeholder="example.com"
-              autoFocus
+              autoFocus={mode !== 'gitclone'}
             />
           </div>
 
@@ -231,7 +339,7 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
             </div>
           )}
 
-          {mode === 'fullstack' && (
+          {(mode === 'fullstack' || (mode === 'gitclone' && gitFullstack)) && (
             <>
               <div className="deploy-field">
                 <label>Entry file</label>
@@ -325,11 +433,19 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
 
           <div className="deploy-actions">
             <button className="btn" onClick={() => setStep('folder')}>Back</button>
-            <button className="btn btn-primary" onClick={() => domain.trim() && setStep('review')} disabled={!domain.trim()}>
+            <button
+              className="btn btn-primary"
+              onClick={() => domain.trim() && (mode !== 'gitclone' || repoUrl.trim()) && setStep('review')}
+              disabled={!domain.trim() || (mode === 'gitclone' && !repoUrl.trim())}
+            >
               Next <ChevronRight size={12} />
             </button>
           </div>
         </div>
+      )}
+
+      {step === 'config' && showDeployKeys && (
+        <DeployKeys onClose={() => setShowDeployKeys(false)} />
       )}
 
       {step === 'review' && (
@@ -341,15 +457,23 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
             </div>
           )}
           <div className="deploy-summary">
-            <div className="deploy-summary-row"><span>Mode:</span><span>{mode === 'fullstack' ? 'Full Stack' : 'Static Site'}</span></div>
-            <div className="deploy-summary-row"><span>Folder:</span><span>{localPath}</span></div>
+            <div className="deploy-summary-row"><span>Mode:</span><span>{mode === 'fullstack' ? 'Full Stack' : mode === 'gitclone' ? `Git Clone${gitFullstack ? ' (Full Stack)' : ''}` : 'Static Site'}</span></div>
+            {mode === 'gitclone' ? (
+              <>
+                <div className="deploy-summary-row"><span>Repository:</span><span>{repoUrl}</span></div>
+                <div className="deploy-summary-row"><span>Branch:</span><span>{branch || 'main'}</span></div>
+                {deployKeyId && <div className="deploy-summary-row"><span>Deploy key:</span><span>{deployKeys.find(k => k.id === deployKeyId)?.name || deployKeyId}</span></div>}
+              </>
+            ) : (
+              <div className="deploy-summary-row"><span>Folder:</span><span>{localPath}</span></div>
+            )}
             <div className="deploy-summary-row"><span>Domain:</span><span>{domain}</span></div>
             {mode === 'static' && (
               <div className="deploy-summary-row"><span>Port:</span><span>{port || '80'}</span></div>
             )}
             <div className="deploy-summary-row"><span>Remote path:</span><span>/var/www/{domain.replace(/[^a-zA-Z0-9.-]/g, '')}</span></div>
             <div className="deploy-summary-row"><span>SSL:</span><span>{ssl === 'none' ? 'None' : ssl === 'certbot' ? "Let's Encrypt" : 'Custom'}</span></div>
-            {mode === 'fullstack' && (
+            {(mode === 'fullstack' || (mode === 'gitclone' && gitFullstack)) && (
               <>
                 <div className="deploy-summary-row"><span>Entry file:</span><span>{entryFile || 'server.js'}</span></div>
                 <div className="deploy-summary-row"><span>PM2 name:</span><span>{appName || domain.replace(/[^a-zA-Z0-9_-]/g, '')}</span></div>
@@ -374,7 +498,7 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
 
       {step === 'deploying' && (
         <div className="deploy-body">
-          <div className="deploy-title">Deploying{mode === 'fullstack' ? ' (Full Stack)' : ''}...</div>
+          <div className="deploy-title">Deploying{mode === 'gitclone' ? ' (Git Clone)' : mode === 'fullstack' ? ' (Full Stack)' : ''}...</div>
           <div className="deploy-progress-bar">
             <div className="deploy-progress-fill" style={{ width: `${pct}%` }} />
           </div>
@@ -396,7 +520,8 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
             <Check size={16} /> Deployed successfully!
           </div>
           <div className="deploy-summary">
-            <div className="deploy-summary-row"><span>Files uploaded:</span><span>{result.uploaded}</span></div>
+            {result.uploaded != null && <div className="deploy-summary-row"><span>Files uploaded:</span><span>{result.uploaded}</span></div>}
+            {result.branch && <div className="deploy-summary-row"><span>Branch:</span><span>{result.branch}</span></div>}
             <div className="deploy-summary-row"><span>Domain:</span><span>{result.domain}</span></div>
             <div className="deploy-summary-row"><span>Remote path:</span><span>{result.remoteDir}</span></div>
             {result.pm2Name && (

@@ -440,26 +440,45 @@ select.form-input {
   color: #e2e8f0;
 }
 
-/* ===== Theme toggle ===== */
+/* ===== Theme select ===== */
 
-.theme-toggle {
+.theme-select-wrapper {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-dim);
-  cursor: pointer;
-  transition: all 0.2s;
   -webkit-app-region: no-drag;
   flex-shrink: 0;
 }
 
-.theme-toggle:hover {
+.theme-select-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--color-text-dim);
+  pointer-events: none;
+}
+
+.theme-select {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-dim);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 5px 24px 5px 28px;
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.theme-select:hover,
+.theme-select:focus {
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: var(--color-accent-dim);
+}
+
+.theme-select option {
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
 }
