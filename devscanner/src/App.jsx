@@ -147,45 +147,32 @@ export default function App() {
     }
   }, [navTab])
 
-  // Handle WSL folder selection from Header
-  const handleSelectFolderFromHeader = useCallback(async (wslPath) => {
-    if (wslPath) {
-      // WSL folder was selected directly
-      setFolderPath(wslPath)
-      setScanError(null)
-      setScanning(true)
-      setLogs({})
-      setOpenTabs([])
-      setActiveTab('projects')
-      const result = await electron.scanFolder(wslPath)
-      if (result.success) {
-        setProjects(result.data)
-      } else {
-        setScanError(result.error)
-        setProjects([])
-      }
-      setScanning(false)
+  const scanSelectedFolder = useCallback(async (selectedPath) => {
+    setFolderPath(selectedPath)
+    setScanError(null)
+    setScanning(true)
+    setLogs({})
+    setOpenTabs([])
+    setActiveTab('projects')
+
+    const result = await electron.scanFolder(selectedPath)
+    if (result.success) {
+      setProjects(result.data)
     } else {
-      // Regular folder selection
-      const selected = await electron.selectFolder()
-      if (selected) {
-        setFolderPath(selected)
-        setScanError(null)
-        setScanning(true)
-        setLogs({})
-        setOpenTabs([])
-        setActiveTab('projects')
-        const result = await electron.scanFolder(selected)
-        if (result.success) {
-          setProjects(result.data)
-        } else {
-          setScanError(result.error)
-          setProjects([])
-        }
-        setScanning(false)
-      }
+      setScanError(result.error)
+      setProjects([])
     }
+    setScanning(false)
   }, [setFolderPath, setScanError, setScanning, setLogs, setOpenTabs, setActiveTab, setProjects])
+
+  // Handle folder selection from Header (Windows picker or WSL popup)
+  const handleSelectFolderFromHeader = useCallback(async (pickedPath) => {
+    const selectedPath = pickedPath || await electron.selectFolder()
+    if (!selectedPath) return
+
+    await scanSelectedFolder(selectedPath)
+    await electron.saveSettings({ lastFolder: selectedPath })
+  }, [scanSelectedFolder])
 
   // Tab info helper
   const getTabInfo = useCallback((tabKey) => {

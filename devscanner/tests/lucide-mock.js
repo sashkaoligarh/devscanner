@@ -11,7 +11,7 @@ const iconNames = [
   'AlertTriangle', 'Info', 'Key', 'Lock', 'Unlock', 'Edit', 'MoreVertical',
   'FolderOpen', 'Search', 'Globe', 'Shield', 'Link', 'Upload', 'Download',
   'Zap', 'Maximize2', 'Minimize2', 'ScrollText', 'Package', 'Monitor',
-  'HardDrive', 'Activity',
+  'HardDrive', 'Activity', 'Palette', 'Radio',
 ]
 const icons = {}
 iconNames.forEach(n => { icons[n] = stub })

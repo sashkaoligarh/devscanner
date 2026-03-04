@@ -1,9 +1,57 @@
 const fs = require('fs')
-const path = require('path')
 const { execSync } = require('child_process')
 const { dialog } = require('electron')
 const { isRunningInsideWsl } = require('../globals')
-const { loadSettings, saveSettings } = require('../utils/settings-store')
+const { saveSettings } = require('../utils/settings-store')
+
+function normalizeLinuxPath(inputPath) {
+  if (typeof inputPath !== 'string' || inputPath.trim() === '') return '/'
+  const normalized = inputPath
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .trim()
+
+  if (normalized === '/') return '/'
+
+  const parts = normalized.split('/').filter(Boolean)
+  return '/' + parts.join('/')
+}
+
+function getLinuxParentPath(linuxPath) {
+  const normalized = normalizeLinuxPath(linuxPath)
+  if (normalized === '/') return null
+  const parts = normalized.split('/').filter(Boolean)
+  parts.pop()
+  return parts.length > 0 ? '/' + parts.join('/') : '/'
+}
+
+function joinLinuxPath(basePath, segment) {
+  const base = normalizeLinuxPath(basePath)
+  if (!segment) return base
+  if (base === '/') return `/${segment}`
+  return `${base}/${segment}`
+}
+
+function linuxToWindowsWslPath(distro, linuxPath) {
+  const normalized = normalizeLinuxPath(linuxPath)
+  const suffix = normalized === '/' ? '' : normalized.replace(/\//g, '\\')
+  return `\\\\wsl$\\${distro}${suffix}`
+}
+
+function getDefaultLinuxPath(distro) {
+  const homeRoot = linuxToWindowsWslPath(distro, '/home')
+  try {
+    const homeEntries = fs.readdirSync(homeRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => a.localeCompare(b))
+
+    if (homeEntries.length > 0) return `/home/${homeEntries[0]}`
+    return '/home'
+  } catch {
+    return '/'
+  }
+}
 
 function getWslConfigPath() {
   // Get Windows USERPROFILE path and convert to WSL-accessible path
@@ -64,15 +112,8 @@ function registerWslHandlers(ipcMain, ctx) {
   ipcMain.handle('select-wsl-folder', async (event, distro) => {
     if (process.platform !== 'win32' || !distro) return null
     try {
-      const wslRoot = `\\\\wsl$\\${distro}\\home`
-      // Try to find user home dirs inside /home
-      let defaultPath = `\\\\wsl$\\${distro}`
-      try {
-        const homeEntries = fs.readdirSync(wslRoot)
-        if (homeEntries.length > 0) {
-          defaultPath = path.join(wslRoot, homeEntries[0])
-        }
-      } catch { /* use distro root */ }
+      const defaultLinuxPath = getDefaultLinuxPath(distro)
+      const defaultPath = linuxToWindowsWslPath(distro, defaultLinuxPath)
 
       const result = await dialog.showOpenDialog(ctx.mainWindow(), {
         properties: ['openDirectory'],
@@ -85,6 +126,89 @@ function registerWslHandlers(ipcMain, ctx) {
     } catch (err) {
       console.error('select-wsl-folder error:', err)
       return null
+    }
+  })
+
+  ipcMain.handle('list-wsl-directories', async (event, payload = {}) => {
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'WSL browsing is available only on Windows' }
+    }
+
+    const distro = typeof payload.distro === 'string' ? payload.distro.trim() : ''
+    if (!distro) {
+      return { success: false, error: 'WSL distro is required' }
+    }
+
+    try {
+      const requestedPath = typeof payload.path === 'string' && payload.path.trim() !== ''
+        ? payload.path
+        : getDefaultLinuxPath(distro)
+      const linuxPath = normalizeLinuxPath(requestedPath)
+      const windowsPath = linuxToWindowsWslPath(distro, linuxPath)
+
+      if (!fs.existsSync(windowsPath)) {
+        return { success: false, error: `Directory not found: ${linuxPath}` }
+      }
+
+      const stat = fs.statSync(windowsPath)
+      if (!stat.isDirectory()) {
+        return { success: false, error: `Not a directory: ${linuxPath}` }
+      }
+
+      const directories = fs.readdirSync(windowsPath, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+        .sort((a, b) => a.localeCompare(b))
+        .map(name => ({
+          name,
+          linuxPath: joinLinuxPath(linuxPath, name)
+        }))
+
+      return {
+        success: true,
+        data: {
+          distro,
+          linuxPath,
+          windowsPath,
+          parentPath: getLinuxParentPath(linuxPath),
+          directories
+        }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('resolve-wsl-folder', async (event, payload = {}) => {
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'WSL browsing is available only on Windows' }
+    }
+
+    const distro = typeof payload.distro === 'string' ? payload.distro.trim() : ''
+    if (!distro) {
+      return { success: false, error: 'WSL distro is required' }
+    }
+
+    const linuxPath = normalizeLinuxPath(payload.path)
+    const windowsPath = linuxToWindowsWslPath(distro, linuxPath)
+
+    try {
+      if (!fs.existsSync(windowsPath)) {
+        return { success: false, error: `Directory not found: ${linuxPath}` }
+      }
+
+      const stat = fs.statSync(windowsPath)
+      if (!stat.isDirectory()) {
+        return { success: false, error: `Not a directory: ${linuxPath}` }
+      }
+
+      saveSettings({ lastFolder: windowsPath })
+      return {
+        success: true,
+        data: { distro, linuxPath, windowsPath }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
     }
   })
 }

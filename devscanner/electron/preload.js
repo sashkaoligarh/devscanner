@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('electron', {
   fixWslLocalhost: () => ipcRenderer.invoke('fix-wsl-localhost'),
   getWslDistros: () => ipcRenderer.invoke('get-wsl-distros'),
   selectWslFolder: (distro) => ipcRenderer.invoke('select-wsl-folder', distro),
+  listWslDirectories: (opts) => ipcRenderer.invoke('list-wsl-directories', opts),
+  resolveWslFolder: (opts) => ipcRenderer.invoke('resolve-wsl-folder', opts),
 
   onProjectLog: (cb) => ipcRenderer.on('project-log', (_, data) => cb(data)),
   onProjectStopped: (cb) => ipcRenderer.on('project-stopped', (_, data) => cb(data)),
