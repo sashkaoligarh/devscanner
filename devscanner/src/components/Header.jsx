@@ -22,18 +22,34 @@ export default function Header({
   ]
   const [theme, setTheme] = useState(() => localStorage.getItem('devscanner-theme') || 'green')
   const [wslDistros, setWslDistros] = useState(wslDistrosProp || [])
-  const [wslMenuOpen, setWslMenuOpen] = useState(false)
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [folderPickerStep, setFolderPickerStep] = useState('source') // 'source' | 'wsl-distro' | 'wsl-browser'
+  const [wslPickerDistro, setWslPickerDistro] = useState(null)
+  const [wslPickerPath, setWslPickerPath] = useState('/')
+  const [wslPickerParentPath, setWslPickerParentPath] = useState(null)
+  const [wslPickerDirs, setWslPickerDirs] = useState([])
+  const [wslPickerLoadingDistros, setWslPickerLoadingDistros] = useState(false)
+  const [wslPickerLoadingDirs, setWslPickerLoadingDirs] = useState(false)
+  const [wslPickerResolving, setWslPickerResolving] = useState(false)
+  const [wslPickerError, setWslPickerError] = useState(null)
   const [wslNetInfo, setWslNetInfo] = useState(null)
   const [wslNetOpen, setWslNetOpen] = useState(false)
   const [wslNetFixing, setWslNetFixing] = useState(false)
   const [wslNetFixed, setWslNetFixed] = useState(false)
 
-  // Close WSL dropdown on outside click
+  // Keep distro list in sync with App updates
   useEffect(() => {
-    if (!wslMenuOpen) return
+    if (Array.isArray(wslDistrosProp)) {
+      setWslDistros(wslDistrosProp)
+    }
+  }, [wslDistrosProp])
+
+  // Close folder source popover on outside click
+  useEffect(() => {
+    if (!folderPickerOpen) return
     const handleClick = (e) => {
-      if (e.target.closest('.wsl-dropdown-wrapper')) return
-      setWslMenuOpen(false)
+      if (e.target.closest('.folder-picker-wrapper')) return
+      setFolderPickerOpen(false)
     }
     const timer = setTimeout(() => {
       document.addEventListener('click', handleClick)
@@ -42,7 +58,7 @@ export default function Header({
       clearTimeout(timer)
       document.removeEventListener('click', handleClick)
     }
-  }, [wslMenuOpen])
+  }, [folderPickerOpen])
 
   // Close WSL network popover on outside click
   useEffect(() => {
@@ -67,15 +83,91 @@ export default function Header({
     }
   }, [hostIp])
 
-  const handleOpenWslFolder = useCallback(async (distro) => {
-    setWslMenuOpen(false)
-    const selected = await electron.selectWslFolder(distro)
-    if (selected) {
-      // Pass up via onSelectFolder with the WSL path
-      // The parent will handle scanning
-      onSelectFolder(selected)
+  const openFolderPicker = useCallback(() => {
+    setFolderPickerOpen(prev => {
+      const next = !prev
+      if (next) {
+        setFolderPickerStep('source')
+        setWslPickerError(null)
+      }
+      return next
+    })
+  }, [])
+
+  const loadWslDistros = useCallback(async () => {
+    if (wslDistros.length > 0) return wslDistros
+    setWslPickerLoadingDistros(true)
+    const distros = await electron.getWslDistros()
+    setWslPickerLoadingDistros(false)
+    setWslDistros(distros)
+    return distros
+  }, [wslDistros])
+
+  const loadWslDirectory = useCallback(async (distro, linuxPath) => {
+    setWslPickerLoadingDirs(true)
+    setWslPickerError(null)
+    const result = await electron.listWslDirectories({ distro, path: linuxPath })
+    setWslPickerLoadingDirs(false)
+
+    if (!result?.success || !result?.data) {
+      setWslPickerError(result?.error || 'Failed to load WSL directory')
+      return false
     }
+
+    setWslPickerDistro(result.data.distro)
+    setWslPickerPath(result.data.linuxPath)
+    setWslPickerParentPath(result.data.parentPath)
+    setWslPickerDirs(result.data.directories || [])
+    setFolderPickerStep('wsl-browser')
+    return true
+  }, [])
+
+  const handlePickWindowsFolder = useCallback(() => {
+    setFolderPickerOpen(false)
+    onSelectFolder()
   }, [onSelectFolder])
+
+  const handlePickWslSource = useCallback(async () => {
+    setFolderPickerStep('wsl-distro')
+    setWslPickerError(null)
+    const distros = await loadWslDistros()
+    if (distros.length === 0) {
+      setWslPickerError('No WSL distributions found')
+    }
+  }, [loadWslDistros])
+
+  const handlePickWslDistro = useCallback(async (distro) => {
+    await loadWslDirectory(distro)
+  }, [loadWslDirectory])
+
+  const handleSelectWslCurrentFolder = useCallback(async () => {
+    if (!wslPickerDistro) return
+    setWslPickerResolving(true)
+    setWslPickerError(null)
+    const result = await electron.resolveWslFolder({
+      distro: wslPickerDistro,
+      path: wslPickerPath
+    })
+    setWslPickerResolving(false)
+
+    if (!result?.success || !result?.data?.windowsPath) {
+      setWslPickerError(result?.error || 'Failed to select WSL folder')
+      return
+    }
+
+    setFolderPickerOpen(false)
+    onSelectFolder(result.data.windowsPath)
+  }, [onSelectFolder, wslPickerDistro, wslPickerPath])
+
+  const handleWslDirOpen = useCallback(async (linuxPath) => {
+    if (!wslPickerDistro) return
+    await loadWslDirectory(wslPickerDistro, linuxPath)
+  }, [loadWslDirectory, wslPickerDistro])
+
+  const handleWslParentOpen = useCallback(async () => {
+    if (!wslPickerDistro || !wslPickerParentPath) return
+    await loadWslDirectory(wslPickerDistro, wslPickerParentPath)
+  }, [loadWslDirectory, wslPickerDistro, wslPickerParentPath])
 
   // Apply theme to DOM
   useEffect(() => {
@@ -152,30 +244,6 @@ export default function Header({
         )}
         {activeView === 'projects' && (
           <>
-            {wslDistros.length > 0 && (
-              <div className="wsl-dropdown-wrapper" style={{ position: 'relative' }}>
-                <button
-                  className="btn btn-wsl"
-                  onClick={(e) => { e.stopPropagation(); setWslMenuOpen(prev => !prev) }}
-                >
-                  <Terminal size={14} />
-                  WSL
-                </button>
-                {wslMenuOpen && (
-                  <div className="wsl-dropdown" onClick={(e) => e.stopPropagation()}>
-                    {wslDistros.map(d => (
-                      <button
-                        key={d}
-                        className="wsl-dropdown-item"
-                        onClick={() => handleOpenWslFolder(d)}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             {hostIp && (
               <div className="wsl-net-wrapper" style={{ position: 'relative' }}>
                 <button
@@ -223,10 +291,105 @@ export default function Header({
                 )}
               </div>
             )}
-            <button className="btn btn-primary" onClick={() => onSelectFolder()}>
-              <FolderOpen size={14} />
-              Choose Folder
-            </button>
+            <div className="folder-picker-wrapper" style={{ position: 'relative' }}>
+              <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); openFolderPicker() }}>
+                <FolderOpen size={14} />
+                Choose Folder
+              </button>
+
+              {folderPickerOpen && (
+                <div className="folder-picker-popover" onClick={(e) => e.stopPropagation()}>
+                  {folderPickerStep === 'source' && (
+                    <>
+                      <div className="folder-picker-title">Choose source</div>
+                      <button className="folder-picker-option" onClick={handlePickWindowsFolder}>
+                        <FolderOpen size={14} />
+                        Windows
+                      </button>
+                      <button className="folder-picker-option" onClick={handlePickWslSource}>
+                        <Terminal size={14} />
+                        WSL
+                      </button>
+                    </>
+                  )}
+
+                  {folderPickerStep === 'wsl-distro' && (
+                    <>
+                      <div className="folder-picker-toolbar">
+                        <button className="folder-picker-back" onClick={() => { setFolderPickerStep('source'); setWslPickerError(null) }}>
+                          Back
+                        </button>
+                        <div className="folder-picker-title">Select WSL distro</div>
+                      </div>
+
+                      {wslPickerLoadingDistros ? (
+                        <div className="folder-picker-hint">Loading WSL distributions...</div>
+                      ) : wslDistros.length > 0 ? (
+                        <div className="folder-picker-list">
+                          {wslDistros.map(distro => (
+                            <button
+                              key={distro}
+                              className="folder-picker-list-item"
+                              onClick={() => handlePickWslDistro(distro)}
+                            >
+                              {distro}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="folder-picker-hint">No WSL distributions found</div>
+                      )}
+                    </>
+                  )}
+
+                  {folderPickerStep === 'wsl-browser' && (
+                    <>
+                      <div className="folder-picker-toolbar">
+                        <button className="folder-picker-back" onClick={() => { setFolderPickerStep('wsl-distro'); setWslPickerError(null) }}>
+                          Back
+                        </button>
+                        <div className="folder-picker-title">{wslPickerDistro}</div>
+                      </div>
+
+                      <div className="folder-picker-path" title={wslPickerPath}>{wslPickerPath}</div>
+
+                      <div className="folder-picker-actions-row">
+                        <button className="btn btn-sm" onClick={handleWslParentOpen} disabled={!wslPickerParentPath || wslPickerLoadingDirs}>
+                          Up
+                        </button>
+                        <button className="btn btn-primary btn-sm" onClick={handleSelectWslCurrentFolder} disabled={wslPickerResolving || wslPickerLoadingDirs}>
+                          {wslPickerResolving ? 'Selecting...' : 'Select this folder'}
+                        </button>
+                      </div>
+
+                      {wslPickerLoadingDirs ? (
+                        <div className="folder-picker-hint">Loading folders...</div>
+                      ) : (
+                        <div className="folder-picker-list">
+                          {wslPickerDirs.length > 0 ? (
+                            wslPickerDirs.map(dir => (
+                              <button
+                                key={dir.linuxPath}
+                                className="folder-picker-list-item"
+                                onClick={() => handleWslDirOpen(dir.linuxPath)}
+                              >
+                                {dir.name}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="folder-picker-hint">No subfolders</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {wslPickerError && (
+                    <div className="folder-picker-error">{wslPickerError}</div>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
