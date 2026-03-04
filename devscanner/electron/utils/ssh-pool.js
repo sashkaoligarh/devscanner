@@ -1,6 +1,7 @@
 const fs = require('fs')
 const { safeStorage } = require('electron')
 const { Client: SSHClient } = require('ssh2')
+const { loadSettings } = require('./settings-store')
 
 const sshConnections = new Map() // serverId -> { client, ready, password }
 
@@ -30,19 +31,54 @@ function connectSSH(serverConfig) {
       readyTimeout: 15000
     }
 
+    console.log('[SSH] connectSSH called for', serverConfig.name || serverConfig.id, '| authType:', serverConfig.authType, '| host:', serverConfig.host)
+
     if (serverConfig.authType === 'key') {
-      if (serverConfig.encryptedPrivateKey && safeStorage.isEncryptionAvailable()) {
+      // SSH key library support: sshKeyId takes precedence
+      if (serverConfig.sshKeyId) {
+        const settings = loadSettings()
+        const keyEntry = (settings.sshKeys || []).find(k => k.id === serverConfig.sshKeyId)
+        if (keyEntry) {
+          if (safeStorage.isEncryptionAvailable()) {
+            try {
+              connectOpts.privateKey = safeStorage.decryptString(Buffer.from(keyEntry.encryptedKeyData, 'base64'))
+              if (keyEntry.encryptedPassphrase && keyEntry.passphraseStored) {
+                connectOpts.passphrase = safeStorage.decryptString(Buffer.from(keyEntry.encryptedPassphrase, 'base64'))
+              }
+            } catch (e) {
+              console.error('[SSH] Failed to decrypt SSH key from library:', e.message)
+              return reject(new Error('Failed to decrypt SSH key from library'))
+            }
+          } else {
+            // safeStorage unavailable (e.g. WSL2) — encryptedKeyData is actually raw plaintext
+            connectOpts.privateKey = keyEntry.encryptedKeyData
+            if (keyEntry.encryptedPassphrase) {
+              connectOpts.passphrase = keyEntry.encryptedPassphrase
+            }
+          }
+        } else {
+          return reject(new Error('SSH key not found in library'))
+        }
+        console.log('[SSH] Using key from library, key length:', connectOpts.privateKey?.length || 0)
+      } else if (serverConfig.encryptedPrivateKey && safeStorage.isEncryptionAvailable()) {
         try {
           connectOpts.privateKey = safeStorage.decryptString(Buffer.from(serverConfig.encryptedPrivateKey, 'base64'))
-        } catch { /* fallback to raw key */ }
+        } catch (e) {
+          console.error('[SSH] Failed to decrypt inline private key:', e.message)
+        }
+        console.log('[SSH] Using encrypted inline key, decrypted length:', connectOpts.privateKey?.length || 0)
       } else if (serverConfig.privateKey) {
         connectOpts.privateKey = serverConfig.privateKey
+        console.log('[SSH] Using raw inline privateKey, length:', serverConfig.privateKey.length)
       } else if (serverConfig.privateKeyPath) {
         try {
           connectOpts.privateKey = fs.readFileSync(serverConfig.privateKeyPath)
         } catch (e) {
           return reject(new Error(`Cannot read private key: ${e.message}`))
         }
+        console.log('[SSH] Using key from file:', serverConfig.privateKeyPath)
+      } else {
+        console.error('[SSH] Key auth but no key source found! Fields:', Object.keys(serverConfig).join(', '))
       }
       if (serverConfig.passphrase) {
         connectOpts.passphrase = serverConfig.passphrase
@@ -52,16 +88,21 @@ function connectSSH(serverConfig) {
       if (serverConfig.encryptedPassword && safeStorage.isEncryptionAvailable()) {
         try {
           password = safeStorage.decryptString(Buffer.from(serverConfig.encryptedPassword, 'base64'))
-        } catch { /* use raw password */ }
+        } catch (e) {
+          console.error('[SSH] Failed to decrypt password:', e.message)
+        }
       }
       connectOpts.password = password
+      console.log('[SSH] Using password auth, password length:', password.length)
     }
 
     client.on('ready', () => {
+      console.log('[SSH] Connected successfully to', serverConfig.name || serverConfig.id)
       sshConnections.set(serverConfig.id, { client, ready: true, password: connectOpts.password || '' })
       resolve(client)
     })
     client.on('error', (err) => {
+      console.error('[SSH] Connection error for', serverConfig.name || serverConfig.id, ':', err.message)
       sshConnections.delete(serverConfig.id)
       reject(err)
     })

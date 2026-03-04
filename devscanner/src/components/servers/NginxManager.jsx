@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Save, Check, X, Shield, RefreshCw, Trash2, ToggleLeft, ToggleRight, Loader, FileText, AlertTriangle } from 'lucide-react'
+import CustomSelect from '../CustomSelect'
 import electron from '../../electronApi'
 
 export default function NginxManager({ serverId }) {
@@ -261,16 +262,16 @@ export default function NginxManager({ serverId }) {
             onChange={e => setNewSiteName(e.target.value)}
             placeholder="new-site-name"
           />
-          <select
-            className="server-terminal-cmd"
-            style={{ width: '100%', marginBottom: '0.25rem' }}
+          <CustomSelect
             value={newSiteTemplate}
-            onChange={e => setNewSiteTemplate(e.target.value)}
-          >
-            <option value="static">Static Site</option>
-            <option value="proxy">Reverse Proxy</option>
-            <option value="redirect">Redirect</option>
-          </select>
+            onChange={setNewSiteTemplate}
+            style={{ width: '100%', marginBottom: '0.25rem' }}
+            options={[
+              { value: 'static', label: 'Static Site' },
+              { value: 'proxy', label: 'Reverse Proxy' },
+              { value: 'redirect', label: 'Redirect' }
+            ]}
+          />
           <button
             className="btn btn-primary btn-sm"
             style={{ width: '100%' }}
@@ -335,16 +336,16 @@ export default function NginxManager({ serverId }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <div className="form-row">
                   <label style={{ width: '100px', fontSize: '0.75rem' }}>Type</label>
-                  <select
-                    className="server-terminal-cmd"
+                  <CustomSelect
                     style={{ flex: 1 }}
                     value={visualConfig.type}
-                    onChange={e => setVisualConfig(prev => ({ ...prev, type: e.target.value }))}
-                  >
-                    <option value="static">Static Site</option>
-                    <option value="proxy">Reverse Proxy</option>
-                    <option value="redirect">HTTP &rarr; HTTPS Redirect</option>
-                  </select>
+                    onChange={v => setVisualConfig(prev => ({ ...prev, type: v }))}
+                    options={[
+                      { value: 'static', label: 'Static Site' },
+                      { value: 'proxy', label: 'Reverse Proxy' },
+                      { value: 'redirect', label: 'HTTP → HTTPS Redirect' }
+                    ]}
+                  />
                 </div>
                 <div className="form-row">
                   <label style={{ width: '100px', fontSize: '0.75rem' }}>server_name</label>

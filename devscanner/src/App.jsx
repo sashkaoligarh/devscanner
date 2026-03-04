@@ -24,6 +24,7 @@ import DockerContainers from './components/DockerContainers'
 import { ConsoleView, DockerConsoleView } from './components/ConsoleView'
 import RemoteServers from './components/servers/RemoteServers'
 import AddServerModal from './components/servers/AddServerModal'
+import useTerminal from './hooks/useTerminal'
 
 export default function App() {
   // Top-level UI state
@@ -82,6 +83,8 @@ export default function App() {
     saveServer, deleteServer, execOnServer,
     remoteRunning, remoteLogs, setRemoteRunning
   } = serversHook
+
+  const terminalHook = useTerminal()
 
   const dockerServicesHook = useDockerServices()
   const {
@@ -283,6 +286,7 @@ export default function App() {
           onSetTerminalInput={setTerminalInput}
           remoteRunning={remoteRunning}
           remoteLogs={remoteLogs}
+          terminalHook={terminalHook}
         />
       ) : navTab === 'docker' ? (
         <DockerContainers

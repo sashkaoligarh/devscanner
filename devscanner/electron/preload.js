@@ -131,6 +131,33 @@ contextBridge.exposeInMainWorld('electron', {
   onDeployLog: (cb) => ipcRenderer.on('deploy-log', (_, data) => cb(data)),
   removeDeployLogListener: () => ipcRenderer.removeAllListeners('deploy-log'),
 
+  // Terminal session channels
+  terminalOpen: (opts) => ipcRenderer.invoke('terminal:open', opts),
+  terminalClose: (opts) => ipcRenderer.invoke('terminal:close', opts),
+  sendTerminalInput: (sessionId, data) => ipcRenderer.send('terminal:input', sessionId, data),
+  sendTerminalResize: (sessionId, cols, rows) => ipcRenderer.send('terminal:resize', sessionId, cols, rows),
+  onTerminalOutput: (cb) => ipcRenderer.on('terminal:output', (_, data) => cb(data)),
+  removeTerminalOutputListener: () => ipcRenderer.removeAllListeners('terminal:output'),
+  onTerminalClosed: (cb) => ipcRenderer.on('terminal:closed', (_, data) => cb(data)),
+  removeTerminalClosedListener: () => ipcRenderer.removeAllListeners('terminal:closed'),
+  onTerminalError: (cb) => ipcRenderer.on('terminal:error', (_, data) => cb(data)),
+  removeTerminalErrorListener: () => ipcRenderer.removeAllListeners('terminal:error'),
+
+  // SSH key library channels
+  sshKeysList: () => ipcRenderer.invoke('ssh-keys:list'),
+  sshKeysAdd: (opts) => ipcRenderer.invoke('ssh-keys:add', opts),
+  sshKeysDelete: (opts) => ipcRenderer.invoke('ssh-keys:delete', opts),
+  sshKeysImportFile: () => ipcRenderer.invoke('ssh-keys:import-file'),
+
+  // Terminal settings channels
+  terminalSettingsGet: () => ipcRenderer.invoke('terminal-settings:get'),
+  terminalSettingsSave: (opts) => ipcRenderer.invoke('terminal-settings:save', opts),
+
+  // Command history channels
+  commandHistoryGet: (opts) => ipcRenderer.invoke('command-history:get', opts),
+  commandHistoryAdd: (opts) => ipcRenderer.invoke('command-history:add', opts),
+  commandHistoryClear: (opts) => ipcRenderer.invoke('command-history:clear', opts),
+
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),

@@ -1,14 +1,20 @@
-import React from 'react'
-import { Plus, Server } from 'lucide-react'
+import React, { useState } from 'react'
+import { Plus, Server, Settings } from 'lucide-react'
 import ServerCard from './ServerCard'
 import ServerDetail from './ServerDetail'
+import SSHKeysSettings from '../settings/SSHKeysSettings'
+import ThemeSettings from '../settings/ThemeSettings'
+import ShortcutSettings from '../settings/ShortcutSettings'
 
 function RemoteServers({
   servers, connections, discovery, discovering, activeServerId, serverSubTab,
   terminalOutput, terminalInput, onSetActiveServer, onSetSubTab,
   onConnect, onDisconnect, onDiscover, onDelete, onAddServer, onExec, onSetTerminalInput,
-  remoteRunning, remoteLogs
+  remoteRunning, remoteLogs, terminalHook
 }) {
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState('keys')
+
   if (activeServerId) {
     const server = servers.find(s => s.id === activeServerId)
     if (!server) { onSetActiveServer(null); return null }
@@ -33,7 +39,49 @@ function RemoteServers({
         onSetTerminalInput={onSetTerminalInput}
         remoteRunning={remoteRunning}
         remoteLogs={remoteLogs}
+        terminalHook={terminalHook}
+        onOpenSettings={() => setShowSettings(true)}
       />
+    )
+  }
+
+  // Settings view
+  if (showSettings) {
+    return (
+      <div className="port-scanner">
+        <div className="port-scanner-toolbar">
+          <div className="port-scanner-controls">
+            <button className="btn" onClick={() => setShowSettings(false)}>
+              <Server size={12} /> Back to Servers
+            </button>
+          </div>
+          <span className="port-scanner-count">
+            <Settings size={12} /> Terminal Settings
+          </span>
+        </div>
+        <div className="server-sub-tabs">
+          {[
+            { id: 'keys', label: 'SSH Keys' },
+            { id: 'themes', label: 'Themes' },
+            { id: 'shortcuts', label: 'Shortcuts' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              className={`server-sub-tab${settingsTab === tab.id ? ' active' : ''}`}
+              onClick={() => setSettingsTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="main" style={{ overflow: 'auto' }}>
+          <div className="settings-inline-content">
+            {settingsTab === 'keys' && <SSHKeysSettings />}
+            {settingsTab === 'themes' && <ThemeSettings terminalHook={terminalHook} />}
+            {settingsTab === 'shortcuts' && <ShortcutSettings terminalHook={terminalHook} />}
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -43,6 +91,9 @@ function RemoteServers({
         <div className="port-scanner-controls">
           <button className="btn btn-primary" onClick={onAddServer}>
             <Plus size={13} /> Add Server
+          </button>
+          <button className="btn" onClick={() => setShowSettings(true)}>
+            <Settings size={13} /> Settings
           </button>
         </div>
         <span className="port-scanner-count">
