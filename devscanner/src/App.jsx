@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import {
   FolderOpen, X, Package, Terminal, ScrollText, Download
 } from 'lucide-react'
@@ -43,8 +43,11 @@ export default function App() {
   const {
     projects, folderPath, setFolderPath, scanning, scanError,
     searchQuery, setSearchQuery, favorites, setFavorites,
+    favoriteOrder, setFavoriteOrder,
+    previewFavoriteOrder, setPreviewFavoriteOrder,
+    previewFavorites, setPreviewFavorites,
     gitInfoCache, setGitInfoCache, filteredProjects,
-    handleSelectFolder, toggleFavorite, refreshGitInfo,
+    handleSelectFolder, toggleFavorite, reorderFavorites, refreshGitInfo,
     setProjects, setScanning, setScanError
   } = projectsHook
 
@@ -116,6 +119,8 @@ export default function App() {
     electron.getSettings().then(settings => {
       if (settings.launchConfigs) setLaunchConfigs(settings.launchConfigs)
       if (settings.favorites) setFavorites(new Set(settings.favorites))
+      if (settings.favoriteOrder) setFavoriteOrder(settings.favoriteOrder)
+      else if (settings.favorites) setFavoriteOrder(settings.favorites)
       if (settings.remoteServers) setRemoteServers(settings.remoteServers)
       if (settings.lastFolder) {
         setFolderPath(settings.lastFolder)
@@ -173,6 +178,215 @@ export default function App() {
     await scanSelectedFolder(selectedPath)
     await electron.saveSettings({ lastFolder: selectedPath })
   }, [scanSelectedFolder])
+
+  // ── Project card drag-and-drop ──
+  const dragRef = useRef(null)
+  const previewOrderRef = useRef(null)
+  const previewFavsRef = useRef(null)
+  const gridRef = useRef(null)
+  const gridColsRef = useRef(3)
+  const cardRectsRef = useRef(new Map())
+
+  // Build a lookup: projectPath → visual index.
+  // Runs synchronously after DOM commit so it's never stale.
+  const idxMapRef = useRef(new Map())
+
+  // FLIP animation: capture old positions, compute deltas, animate
+  useLayoutEffect(() => {
+    const m = new Map()
+    filteredProjects.forEach((p, i) => m.set(p.path, i))
+    idxMapRef.current = m
+
+    const oldRects = cardRectsRef.current
+    if (!gridRef.current || oldRects.size === 0) return
+    const cards = gridRef.current.querySelectorAll('[data-project-path]')
+    cards.forEach(card => {
+      const path = card.dataset.projectPath
+      const oldRect = oldRects.get(path)
+      if (!oldRect) return
+      const newRect = card.getBoundingClientRect()
+      const dx = oldRect.left - newRect.left
+      const dy = oldRect.top - newRect.top
+      if (dx === 0 && dy === 0) return
+      card.style.transform = `translate(${dx}px, ${dy}px)`
+      card.style.transition = 'none'
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          card.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.1, 0.25, 1)'
+          card.style.transform = ''
+        })
+      })
+    })
+    cardRectsRef.current = new Map()
+  }, [filteredProjects])
+
+  const captureCardPositions = useCallback(() => {
+    if (!gridRef.current) return
+    const cards = gridRef.current.querySelectorAll('[data-project-path]')
+    const rects = new Map()
+    cards.forEach(card => {
+      const rect = card.getBoundingClientRect()
+      // Compensate for any active FLIP transform so we capture the final position
+      const st = getComputedStyle(card)
+      const matrix = new DOMMatrix(st.transform)
+      rects.set(card.dataset.projectPath, {
+        left: rect.left - matrix.m41,
+        top: rect.top - matrix.m42
+      })
+    })
+    cardRectsRef.current = rects
+  }, [])
+
+  const handleDragStart = useCallback((e, projectPath) => {
+    dragRef.current = projectPath
+    previewOrderRef.current = null
+    previewFavsRef.current = null
+    if (gridRef.current) {
+      gridColsRef.current = getComputedStyle(gridRef.current)
+        .gridTemplateColumns.split(' ').length
+    }
+    e.dataTransfer.effectAllowed = 'move'
+    e.currentTarget.classList.add('dragging')
+  }, [])
+
+  const handleDragOver = useCallback((e, projectPath) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!dragRef.current || dragRef.current === projectPath) return
+
+    const idxMap = idxMapRef.current
+    const fromIdx = idxMap.get(dragRef.current)
+    const toIdx = idxMap.get(projectPath)
+    if (fromIdx === undefined || toIdx === undefined || fromIdx === toIdx) return
+
+    const cols = gridColsRef.current
+    const fromCol = fromIdx % cols
+    const toCol = toIdx % cols
+    const fromRow = Math.floor(fromIdx / cols)
+    const toRow = Math.floor(toIdx / cols)
+
+    // Cursor position relative to the target card (getBoundingClientRect is reliable, no transforms)
+    const rect = e.currentTarget.getBoundingClientRect()
+    const xRatio = (e.clientX - rect.left) / rect.width
+    const yRatio = (e.clientY - rect.top) / rect.height
+
+    // 50% midpoint: cursor must cross the center line of the target card
+    if (fromRow === toRow) {
+      if (toCol > fromCol && xRatio < 0.5) return   // dragging right, not past center
+      if (toCol < fromCol && xRatio > 0.5) return   // dragging left, not past center
+    } else if (fromCol === toCol) {
+      if (toRow > fromRow && yRatio < 0.5) return   // dragging down, not past center
+      if (toRow < fromRow && yRatio > 0.5) return   // dragging up, not past center
+    } else {
+      const xOk = toCol > fromCol ? xRatio >= 0.5 : xRatio <= 0.5
+      const yOk = toRow > fromRow ? yRatio >= 0.5 : yRatio <= 0.5
+      if (!xOk && !yOk) return
+    }
+
+    const curFavs = previewFavsRef.current || favorites
+    const curOrder = previewOrderRef.current || favoriteOrder
+    const targetIsFav = curFavs.has(projectPath)
+    const draggedPath = dragRef.current
+    const movingForward = fromIdx < toIdx
+
+    let newOrder, newFavs
+
+    if (targetIsFav) {
+      newFavs = new Set(curFavs)
+      newFavs.add(draggedPath)
+      newOrder = curOrder.filter(p => p !== draggedPath)
+      const targetPos = newOrder.indexOf(projectPath)
+      if (targetPos === -1) return
+      // Moving forward: insert AFTER target (to reach its position)
+      // Moving backward: insert BEFORE target
+      newOrder.splice(movingForward ? targetPos + 1 : targetPos, 0, draggedPath)
+    } else {
+      if (!curFavs.has(draggedPath)) return
+      newFavs = new Set(curFavs)
+      newFavs.delete(draggedPath)
+      newOrder = curOrder.filter(p => p !== draggedPath)
+    }
+
+    captureCardPositions()
+    previewOrderRef.current = newOrder
+    previewFavsRef.current = newFavs
+    setPreviewFavoriteOrder(newOrder)
+    setPreviewFavorites(newFavs)
+  }, [favorites, favoriteOrder, captureCardPositions, setPreviewFavoriteOrder, setPreviewFavorites])
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault()
+    if (dragRef.current && (previewOrderRef.current || previewFavsRef.current)) {
+      const finalOrder = previewOrderRef.current || favoriteOrder
+      const finalFavs = previewFavsRef.current || favorites
+      setFavoriteOrder(finalOrder)
+      setFavorites(finalFavs)
+      electron.saveSettings({
+        favorites: [...finalFavs],
+        favoriteOrder: finalOrder
+      })
+    }
+    setPreviewFavoriteOrder(null)
+    setPreviewFavorites(null)
+    previewOrderRef.current = null
+    previewFavsRef.current = null
+    dragRef.current = null
+  }, [favorites, favoriteOrder, setFavoriteOrder, setFavorites, setPreviewFavoriteOrder, setPreviewFavorites])
+
+  const handleDragEnd = useCallback((e) => {
+    e.currentTarget.classList.remove('dragging')
+    setPreviewFavoriteOrder(null)
+    setPreviewFavorites(null)
+    previewOrderRef.current = null
+    previewFavsRef.current = null
+    dragRef.current = null
+  }, [setPreviewFavoriteOrder, setPreviewFavorites])
+
+  // ── Tab drag-and-drop ──
+  const tabDragRef = useRef(null)
+  const tabLastSwap = useRef(null)
+
+  const handleTabDragStart = useCallback((e, tabKey) => {
+    tabDragRef.current = tabKey
+    tabLastSwap.current = null
+    e.dataTransfer.effectAllowed = 'move'
+    e.currentTarget.classList.add('tab-dragging')
+  }, [])
+
+  const handleTabDragOver = useCallback((e, tabKey) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!tabDragRef.current || tabDragRef.current === tabKey) return
+
+    if (tabLastSwap.current === tabKey) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const xFromCenter = Math.abs(e.clientX - (rect.left + rect.width / 2))
+      if (xFromCenter > rect.width / 4) return
+    }
+
+    tabLastSwap.current = tabKey
+    setOpenTabs(prev => {
+      const tabs = [...prev]
+      const fromIdx = tabs.indexOf(tabDragRef.current)
+      const toIdx = tabs.indexOf(tabKey)
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev
+      tabs.splice(fromIdx, 1)
+      tabs.splice(toIdx, 0, tabDragRef.current)
+      return tabs
+    })
+  }, [setOpenTabs])
+
+  const handleTabDrop = useCallback((e) => {
+    e.preventDefault()
+    tabDragRef.current = null
+    tabLastSwap.current = null
+  }, [])
+
+  const handleTabDragEnd = useCallback((e) => {
+    e.currentTarget.classList.remove('tab-dragging')
+    tabDragRef.current = null
+    tabLastSwap.current = null
+  }, [])
 
   // Tab info helper
   const getTabInfo = useCallback((tabKey) => {
@@ -314,6 +528,11 @@ export default function App() {
                     key={tabKey}
                     className={`tab${activeTab === tabKey ? ' tab-active' : ''}${info.isRunning ? ' tab-running' : ''}`}
                     onClick={() => setActiveTab(tabKey)}
+                    draggable
+                    onDragStart={(e) => handleTabDragStart(e, tabKey)}
+                    onDragOver={(e) => handleTabDragOver(e, tabKey)}
+                    onDrop={handleTabDrop}
+                    onDragEnd={handleTabDragEnd}
                   >
                     {isDockerLog ? <ScrollText size={12} /> : <Terminal size={12} />}
                     {isDockerLog
@@ -349,7 +568,7 @@ export default function App() {
                   </button>
                 </div>
               ) : filteredProjects.length > 0 ? (
-                <div className="project-grid">
+                <div className="project-grid" ref={gridRef}>
                   {filteredProjects.map(project => (
                     <ProjectCard
                       key={project.path}
@@ -360,7 +579,7 @@ export default function App() {
                       onOpenBrowser={handleOpenBrowser}
                       onViewTab={(tabKey) => setActiveTab(tabKey)}
                       openTabs={openTabs}
-                      isFavorite={favorites.has(project.path)}
+                      isFavorite={(previewFavorites || favorites).has(project.path)}
                       onToggleFavorite={toggleFavorite}
                       health={health}
                       gitInfo={gitInfoCache[project.path] || null}
@@ -377,6 +596,11 @@ export default function App() {
                       hostIp={hostIp}
                       onEnvEdit={(p) => setEnvModal({ project: p })}
                       onDockerServices={(p) => openServicesModal(p)}
+                      isDragOver={false}
+                      onDragStart={handleDragStart}
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                      onDragEnd={handleDragEnd}
                     />
                   ))}
                 </div>

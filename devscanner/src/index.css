@@ -510,6 +510,18 @@ body {
   color: var(--color-error);
 }
 
+.tab[draggable] {
+  cursor: grab;
+}
+
+.tab[draggable]:active {
+  cursor: grabbing;
+}
+
+.tab-dragging {
+  opacity: 0.4;
+}
+
 /* Console view */
 
 .console-view {
@@ -888,6 +900,7 @@ body {
 .docker-service {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.375rem;
   padding: 0.2rem 0.4rem;
   background: rgba(255, 255, 255, 0.03);

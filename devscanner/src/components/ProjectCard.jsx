@@ -45,7 +45,8 @@ function getDbConnectionString(service) {
 function ProjectCard({
   project, instances, onLaunch, onStop, onOpenBrowser, onViewTab, openTabs,
   isFavorite, onToggleFavorite, health, gitInfo, onGitFetch, onGitPull, hostIp,
-  onEnvEdit, onDockerServices
+  onEnvEdit, onDockerServices,
+  isDragOver, onDragStart, onDragOver, onDrop, onDragEnd
 }) {
   const instanceEntries = instances ? Object.entries(instances) : []
   const isRunning = instanceEntries.length > 0
@@ -72,7 +73,15 @@ function ProjectCard({
   const gi = gitInfo || project.git
 
   return (
-    <div className={`project-card${isRunning ? ' running' : ''}${isFavorite ? ' favorited' : ''}`}>
+    <div
+      className={`project-card${isRunning ? ' running' : ''}${isFavorite ? ' favorited' : ''}${isDragOver ? ' drag-over' : ''}`}
+      data-project-path={project.path}
+      draggable
+      onDragStart={(e) => onDragStart(e, project.path)}
+      onDragOver={(e) => onDragOver(e, project.path)}
+      onDrop={(e) => onDrop(e)}
+      onDragEnd={onDragEnd}
+    >
       <div className="project-name-row">
         <div className="project-name">
           {project.name}

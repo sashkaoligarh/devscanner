@@ -8,6 +8,9 @@ export default function useProjects() {
   const [scanError, setScanError] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [favorites, setFavorites] = useState(new Set())
+  const [favoriteOrder, setFavoriteOrder] = useState([])
+  const [previewFavoriteOrder, setPreviewFavoriteOrder] = useState(null)
+  const [previewFavorites, setPreviewFavorites] = useState(null)
   const [gitInfoCache, setGitInfoCache] = useState({})
   const [sortBy, setSortBy] = useState(null)
 
@@ -21,13 +24,21 @@ export default function useProjects() {
         p.frameworks.some(f => f.toLowerCase().includes(q))
       )
     }
-    // Favorites first
+    const activeOrder = previewFavoriteOrder || favoriteOrder
+    const activeFavs = previewFavorites || favorites
+    // Favorites first, in custom order
     return [...list].sort((a, b) => {
-      const aFav = favorites.has(a.path) ? 0 : 1
-      const bFav = favorites.has(b.path) ? 0 : 1
-      return aFav - bFav
+      const aFav = activeFavs.has(a.path) ? 0 : 1
+      const bFav = activeFavs.has(b.path) ? 0 : 1
+      if (aFav !== bFav) return aFav - bFav
+      if (aFav === 0) {
+        const aIdx = activeOrder.indexOf(a.path)
+        const bIdx = activeOrder.indexOf(b.path)
+        return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
+      }
+      return 0
     })
-  }, [projects, searchQuery, favorites])
+  }, [projects, searchQuery, favorites, favoriteOrder, previewFavoriteOrder, previewFavorites])
 
   const handleScan = useCallback(async (path) => {
     setScanError(null)
@@ -62,10 +73,35 @@ export default function useProjects() {
   const toggleFavorite = useCallback((projectPath) => {
     setFavorites(prev => {
       const next = new Set(prev)
-      if (next.has(projectPath)) next.delete(projectPath)
-      else next.add(projectPath)
-      electron.saveSettings({ favorites: [...next] })
+      if (next.has(projectPath)) {
+        next.delete(projectPath)
+        setFavoriteOrder(order => {
+          const newOrder = order.filter(p => p !== projectPath)
+          electron.saveSettings({ favorites: [...next], favoriteOrder: newOrder })
+          return newOrder
+        })
+      } else {
+        next.add(projectPath)
+        setFavoriteOrder(order => {
+          const newOrder = [...order, projectPath]
+          electron.saveSettings({ favorites: [...next], favoriteOrder: newOrder })
+          return newOrder
+        })
+      }
       return next
+    })
+  }, [])
+
+  const reorderFavorites = useCallback((fromPath, toPath) => {
+    setFavoriteOrder(prev => {
+      const order = [...prev]
+      const fromIdx = order.indexOf(fromPath)
+      const toIdx = order.indexOf(toPath)
+      if (fromIdx === -1 || toIdx === -1) return prev
+      order.splice(fromIdx, 1)
+      order.splice(toIdx, 0, fromPath)
+      electron.saveSettings({ favoriteOrder: order })
+      return order
     })
   }, [])
 
@@ -111,6 +147,12 @@ export default function useProjects() {
     setSearchQuery,
     favorites,
     setFavorites,
+    favoriteOrder,
+    setFavoriteOrder,
+    previewFavoriteOrder,
+    setPreviewFavoriteOrder,
+    previewFavorites,
+    setPreviewFavorites,
     gitInfoCache,
     setGitInfoCache,
     sortBy,
@@ -119,6 +161,7 @@ export default function useProjects() {
     handleScan,
     handleSelectFolder,
     toggleFavorite,
+    reorderFavorites,
     refreshGitInfo
   }
 }

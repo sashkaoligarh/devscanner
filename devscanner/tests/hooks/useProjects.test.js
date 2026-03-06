@@ -149,6 +149,7 @@ describe('useProjects', () => {
       expect(result.current.favorites.has('/proj/a')).toBe(true)
       expect(mockElectron.saveSettings).toHaveBeenCalledWith({
         favorites: ['/proj/a'],
+        favoriteOrder: ['/proj/a'],
       })
 
       // Add another
