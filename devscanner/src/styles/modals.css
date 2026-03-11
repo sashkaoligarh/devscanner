@@ -179,7 +179,7 @@
 }
 
 .npm-script-row:hover {
-  border-color: rgba(0, 255, 136, 0.2);
+  border-color: var(--color-accent-dim);
   background: var(--color-surface-hover);
 }
 

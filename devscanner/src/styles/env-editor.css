@@ -14,10 +14,10 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 170, 0, 0.08);
-  border: 1px solid rgba(255, 170, 0, 0.2);
+  background: var(--color-warning-dim);
+  border: 1px solid var(--color-warning-border);
   border-radius: var(--radius-md);
-  color: #ffaa00;
+  color: var(--color-warning);
   font-size: 0.72rem;
   margin-bottom: 0.75rem;
 }
@@ -33,7 +33,7 @@
   padding: 0.3rem 0.6rem;
   font-size: 0.7rem;
   font-family: var(--font-mono);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-overlay-light);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-dim);
@@ -49,7 +49,7 @@
 .env-dir-btn.active {
   color: var(--color-accent);
   border-color: var(--color-accent);
-  background: rgba(0, 255, 136, 0.06);
+  background: var(--color-accent-dim);
 }
 
 .env-file-tabs {
@@ -83,12 +83,12 @@
 
 .env-file-tab:hover {
   color: var(--color-text);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-overlay-light);
 }
 
 .env-file-tab.active {
   color: var(--color-accent);
-  background: rgba(0, 255, 136, 0.06);
+  background: var(--color-accent-dim);
 }
 
 .env-file-tab-add {
@@ -151,7 +151,7 @@
 
 .env-dirty-indicator {
   font-size: 0.7rem;
-  color: #ffaa00;
+  color: var(--color-warning);
   font-weight: 500;
 }
 

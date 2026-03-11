@@ -29,6 +29,6 @@
 }
 
 .wc-close:hover {
-  background: #c42b1c;
-  color: #fff;
+  background: var(--color-close-bg);
+  color: var(--color-close-text);
 }

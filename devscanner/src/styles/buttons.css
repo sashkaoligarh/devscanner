@@ -42,7 +42,7 @@
 }
 
 .btn-danger:hover {
-  background: rgba(255, 68, 68, 0.12);
+  background: var(--color-error-dim);
 }
 
 .btn-sm {
@@ -125,11 +125,11 @@
 }
 
 .btn-star:hover {
-  color: #ffcc00;
+  color: var(--color-star);
 }
 
 .btn-star.starred {
-  color: #ffcc00;
+  color: var(--color-star);
 }
 
 /* --- Health indicators --- */
@@ -147,20 +147,20 @@
 
 .health-pending {
   color: var(--color-warning);
-  border-color: rgba(255, 204, 0, 0.3);
-  background: rgba(255, 204, 0, 0.05);
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-dim);
 }
 
 .health-ok {
   color: var(--color-success);
-  border-color: rgba(0, 255, 136, 0.3);
-  background: rgba(0, 255, 136, 0.05);
+  border-color: var(--color-success-border);
+  background: var(--color-success-dim);
 }
 
 .health-err {
   color: var(--color-error);
-  border-color: rgba(255, 68, 68, 0.3);
-  background: rgba(255, 68, 68, 0.05);
+  border-color: var(--color-error-border);
+  background: var(--color-error-dim);
 }
 
 .health-icon-pending { color: var(--color-warning); }

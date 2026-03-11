@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { Plus, Save, Check, X, Shield, RefreshCw, Trash2, ToggleLeft, ToggleRight, Loader, FileText, AlertTriangle } from 'lucide-react'
+import { Plus, Save, Check, X, Shield, RefreshCw, Trash2, ToggleLeft, ToggleRight, Loader, FileText, AlertTriangle, Wifi } from 'lucide-react'
 import electron from '../../electronApi'
 
 export default function NginxManager({ serverId }) {
@@ -15,6 +15,11 @@ export default function NginxManager({ serverId }) {
   const [newSiteName, setNewSiteName] = useState('')
   const [newSiteTemplate, setNewSiteTemplate] = useState('static')
   const [actionLoading, setActionLoading] = useState(null) // 'test' | 'reload' | 'certbot' | 'enable' | 'disable' | 'install'
+  const [nginxInstalled, setNginxInstalled] = useState(true)
+
+  // Listening ports state
+  const [listeningPorts, setListeningPorts] = useState([])
+  const [portsLoading, setPortsLoading] = useState(false)
 
   // Visual editor state
   const [visualConfig, setVisualConfig] = useState({
@@ -25,19 +30,38 @@ export default function NginxManager({ serverId }) {
     type: 'static' // 'static' | 'proxy' | 'redirect'
   })
 
+  const loadPorts = useCallback(async () => {
+    setPortsLoading(true)
+    const result = await electron.sshListeningPorts({ serverId })
+    if (result.success) {
+      setListeningPorts(result.data)
+    }
+    setPortsLoading(false)
+  }, [serverId])
+
   const loadSites = useCallback(async () => {
     setLoading(true)
     setError(null)
     const result = await electron.sshNginxList({ serverId })
     if (result.success) {
       setSites(result.data)
+      setNginxInstalled(true)
     } else {
-      setError(result.error)
+      if (result.error === 'nginx_not_installed') {
+        setNginxInstalled(false)
+      } else {
+        setError(result.error)
+      }
     }
     setLoading(false)
   }, [serverId])
 
   useEffect(() => { loadSites() }, [loadSites])
+
+  // Load ports when nginx is installed
+  useEffect(() => {
+    if (nginxInstalled && !loading) loadPorts()
+  }, [nginxInstalled, loading, loadPorts])
 
   // Re-read site from server and update both raw + visual
   const refreshSite = useCallback(async (siteName) => {
@@ -152,12 +176,28 @@ export default function NginxManager({ serverId }) {
     if (!domain) return
     setActionLoading('certbot')
     setError(null)
-    const result = await electron.sshCertbotRun({ serverId, domain })
+    setTestResult(null)
+
+    let result = await electron.sshCertbotRun({ serverId, domain })
+
+    // Auto-install certbot if not found
+    if (!result.success && result.error === 'certbot_not_installed') {
+      setTestResult({ ok: false, output: 'Certbot not installed. Installing...' })
+      const installRes = await electron.sshCertbotInstall({ serverId })
+      if (!installRes.success) {
+        setTestResult({ ok: false, output: 'Failed to install certbot: ' + (installRes.error || '') })
+        setActionLoading(null)
+        return
+      }
+      setTestResult({ ok: true, output: 'Certbot installed. Running SSL setup...' })
+      result = await electron.sshCertbotRun({ serverId, domain })
+    }
+
     if (!result.success) {
-      setError(result.error)
+      setTestResult({ ok: false, output: 'SSL failed: ' + (result.error || 'Unknown error') })
     } else {
+      setTestResult({ ok: true, output: result.data?.output || 'SSL certificate installed successfully' })
       await loadSites()
-      // Refresh visual after certbot modifies config
       if (selectedSite) await refreshSite(selectedSite)
     }
     setActionLoading(null)
@@ -199,26 +239,50 @@ export default function NginxManager({ serverId }) {
     setActionLoading(null)
   }, [serverId, selectedSite, loadSites])
 
+  const handleInstall = useCallback(async () => {
+    setActionLoading('install')
+    const result = await electron.sshNginxInstall({ serverId })
+    if (result.success) {
+      setNginxInstalled(true)
+      await loadSites()
+    } else {
+      setError(result.error || 'Installation failed')
+    }
+    setActionLoading(null)
+  }, [serverId, loadSites])
+
   if (loading) {
     return <div className="scanning-indicator"><div className="spinner" /> Loading nginx sites...</div>
+  }
+
+  if (!nginxInstalled) {
+    return (
+      <div className="empty-state">
+        <AlertTriangle size={48} className="empty-state-icon" />
+        <div className="empty-state-text">Nginx is not installed on this server</div>
+        <button className="btn btn-primary" onClick={handleInstall} disabled={actionLoading === 'install'}>
+          {actionLoading === 'install' ? <><Loader size={12} className="spin" /> Installing...</> : 'Install nginx'}
+        </button>
+      </div>
+    )
   }
 
   if (error && sites.length === 0) {
     return (
       <div className="empty-state">
         <AlertTriangle size={48} className="empty-state-icon" />
-        <div className="empty-state-text">Nginx not found or not accessible</div>
-        <button className="btn btn-primary" onClick={async () => {
-          setActionLoading('install')
-          await electron.sshNginxInstall({ serverId })
-          await loadSites()
-          setActionLoading(null)
-        }} disabled={actionLoading === 'install'}>
-          {actionLoading === 'install' ? <><Loader size={12} className="spin" /> Installing...</> : 'Install nginx'}
+        <div className="empty-state-text">Nginx error: {error}</div>
+        <button className="btn btn-primary" onClick={loadSites}>
+          <RefreshCw size={12} /> Retry
         </button>
       </div>
     )
   }
+
+  // Filter ports for the port picker (exclude nginx's own ports)
+  const availablePorts = listeningPorts.filter(p =>
+    p.processName && p.processName !== 'nginx' && p.port !== 80 && p.port !== 443
+  )
 
   return (
     <div className="main" style={{ display: 'flex', gap: '1rem', height: '100%' }}>
@@ -254,16 +318,23 @@ export default function NginxManager({ serverId }) {
 
         {/* Create new */}
         <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
+          <label style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)', marginBottom: '0.15rem', display: 'block' }}>Site name</label>
           <input
-            className="server-terminal-cmd"
-            style={{ width: '100%', marginBottom: '0.25rem' }}
+            style={{
+              width: '100%', marginBottom: '0.25rem', fontSize: '0.72rem', padding: '0.3rem 0.5rem',
+              background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+              color: 'var(--color-text)', fontFamily: 'var(--font-mono)', outline: 'none', boxSizing: 'border-box'
+            }}
             value={newSiteName}
             onChange={e => setNewSiteName(e.target.value)}
             placeholder="new-site-name"
           />
           <select
-            className="server-terminal-cmd"
-            style={{ width: '100%', marginBottom: '0.25rem' }}
+            style={{
+              width: '100%', marginBottom: '0.25rem', fontSize: '0.72rem', padding: '0.3rem 0.5rem',
+              background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+              color: 'var(--color-text)', fontFamily: 'var(--font-mono)', outline: 'none', boxSizing: 'border-box'
+            }}
             value={newSiteTemplate}
             onChange={e => setNewSiteTemplate(e.target.value)}
           >
@@ -278,7 +349,7 @@ export default function NginxManager({ serverId }) {
             onClick={handleCreate}
           >
             {creating ? <Loader size={10} className="spin" /> : <Plus size={10} />}
-            Create
+            {' '}Create
           </button>
         </div>
       </div>
@@ -381,15 +452,103 @@ export default function NginxManager({ serverId }) {
                 {visualConfig.type === 'proxy' && (
                   <div className="form-row">
                     <label style={{ width: '100px', fontSize: '0.75rem' }}>proxy_pass</label>
-                    <input
-                      className="server-terminal-cmd"
-                      style={{ flex: 1 }}
-                      value={visualConfig.proxyPass}
-                      onChange={e => setVisualConfig(prev => ({ ...prev, proxyPass: e.target.value }))}
-                      placeholder="http://localhost:3000"
-                    />
+                    <div style={{ flex: 1, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <input
+                        className="server-terminal-cmd"
+                        style={{ flex: 1 }}
+                        value={visualConfig.proxyPass}
+                        onChange={e => setVisualConfig(prev => ({ ...prev, proxyPass: e.target.value }))}
+                        placeholder="http://localhost:3000"
+                      />
+                      {availablePorts.length > 0 && (
+                        <select
+                          className="server-terminal-cmd"
+                          style={{ width: 'auto', minWidth: '120px' }}
+                          value=""
+                          onChange={e => {
+                            if (e.target.value) {
+                              setVisualConfig(prev => ({ ...prev, proxyPass: `http://localhost:${e.target.value}` }))
+                            }
+                          }}
+                        >
+                          <option value="">Select port...</option>
+                          {availablePorts.map((p, i) => (
+                            <option key={i} value={p.port}>
+                              :{p.port} {p.processName}{p.pid ? ` (${p.pid})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                 )}
+
+                {/* Listening ports panel */}
+                <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <Wifi size={11} />
+                    <span style={{ fontSize: '0.7rem', fontWeight: 600 }}>Running Services</span>
+                    <button className="btn btn-sm" onClick={loadPorts} disabled={portsLoading} style={{ padding: '0 4px' }}>
+                      <RefreshCw size={9} className={portsLoading ? 'spin' : ''} />
+                    </button>
+                  </div>
+                  {listeningPorts.length === 0 ? (
+                    <div style={{ fontSize: '0.65rem', color: 'var(--color-text-dim)' }}>
+                      {portsLoading ? 'Loading...' : 'No listening ports found'}
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: '180px', overflow: 'auto' }}>
+                      {listeningPorts
+                        .filter(p => p.port !== 80 && p.port !== 443)
+                        .map((p, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            padding: '0.3rem 0.4rem', fontSize: '0.68rem',
+                            borderBottom: '1px solid var(--color-border)',
+                            cursor: p.processName !== 'nginx' ? 'pointer' : 'default'
+                          }}
+                          onClick={() => {
+                            if (p.processName === 'nginx') return
+                            setVisualConfig(prev => ({
+                              ...prev,
+                              type: 'proxy',
+                              proxyPass: `http://localhost:${p.port}`
+                            }))
+                          }}
+                          title={p.processName !== 'nginx' ? `Proxy to localhost:${p.port}` : ''}
+                        >
+                          <span style={{
+                            fontWeight: 600, minWidth: '45px',
+                            color: 'var(--color-accent)'
+                          }}>:{p.port}</span>
+                          <span style={{ flex: 1, color: p.processName ? 'var(--color-text)' : 'var(--color-text-dim)' }}>
+                            {p.processName || 'unknown'}
+                          </span>
+                          {p.pid && <span style={{ color: 'var(--color-text-dim)', fontSize: '0.6rem' }}>pid:{p.pid}</span>}
+                          {p.processName !== 'nginx' && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              style={{ padding: '0.15rem 0.4rem', fontSize: '0.6rem' }}
+                              onClick={e => {
+                                e.stopPropagation()
+                                setVisualConfig(prev => ({
+                                  ...prev,
+                                  type: 'proxy',
+                                  proxyPass: `http://localhost:${p.port}`
+                                }))
+                              }}
+                            >
+                              Assign
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ marginTop: '0.5rem' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)', marginBottom: '0.25rem' }}>Config Preview:</div>
                   <pre style={{

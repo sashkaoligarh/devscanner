@@ -37,6 +37,44 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ===== Global form elements ===== */
+select, input[type="text"], input[type="number"], input[type="password"], input[type="email"], input[type="url"], textarea {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+select:focus, input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus, input[type="email"]:focus, input[type="url"]:focus, textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-dim);
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a8a8a'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
+}
+
+select option {
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-text-dim);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
 .app {
   height: 100vh;
   display: flex;
@@ -213,7 +251,7 @@ body {
 }
 
 .tab-close:hover {
-  background: rgba(255, 68, 68, 0.2);
+  background: var(--color-error-dim);
   color: var(--color-error);
 }
 
@@ -282,9 +320,9 @@ select.form-input {
   font-size: 0.55rem;
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-sm);
-  background: rgba(130, 80, 255, 0.15);
-  color: #a78bfa;
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary);
+  border: 1px solid var(--color-secondary-border);
   margin-left: 0.5rem;
   vertical-align: middle;
   font-family: var(--font-mono);
@@ -295,14 +333,14 @@ select.form-input {
 /* WSL button & dropdown */
 
 .btn-wsl {
-  border-color: rgba(130, 80, 255, 0.4);
-  color: #a78bfa;
+  border-color: var(--color-secondary-border);
+  color: var(--color-secondary);
 }
 
 .btn-wsl:hover {
-  border-color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  border-color: var(--color-secondary);
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .wsl-dropdown {
@@ -312,7 +350,7 @@ select.form-input {
   margin-top: 4px;
   min-width: 160px;
   background: var(--color-surface);
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  border: 1px solid var(--color-secondary-border);
   border-radius: var(--radius-md);
   overflow: hidden;
   z-index: 50;
@@ -334,8 +372,8 @@ select.form-input {
 }
 
 .wsl-dropdown-item:hover {
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .wsl-dropdown-item:not(:last-child) {
@@ -349,7 +387,7 @@ select.form-input {
   margin-top: 4px;
   width: 320px;
   background: var(--color-surface);
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  border: 1px solid var(--color-secondary-border);
   border-radius: var(--radius-md);
   z-index: 60;
   box-shadow: var(--shadow-popup);
@@ -383,9 +421,9 @@ select.form-input {
 }
 
 .folder-picker-option:hover {
-  border-color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  border-color: var(--color-secondary);
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .folder-picker-toolbar {
@@ -415,9 +453,9 @@ select.form-input {
 
 .folder-picker-path {
   font-size: 0.68rem;
-  color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
-  border: 1px solid rgba(130, 80, 255, 0.25);
+  color: var(--color-secondary);
+  background: var(--color-secondary-dim);
+  border: 1px solid var(--color-secondary-border);
   border-radius: var(--radius-sm);
   padding: 0.35rem 0.45rem;
   white-space: nowrap;
@@ -460,8 +498,8 @@ select.form-input {
 }
 
 .folder-picker-list-item:hover {
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .folder-picker-hint {
@@ -478,14 +516,14 @@ select.form-input {
 }
 
 .btn-wsl-ok {
-  border-color: rgba(52, 211, 153, 0.4) !important;
-  color: #34d399 !important;
+  border-color: var(--color-success-border) !important;
+  color: var(--color-success) !important;
 }
 
 .btn-wsl-ok:hover {
-  border-color: #34d399 !important;
-  background: rgba(52, 211, 153, 0.08) !important;
-  color: #6ee7b7 !important;
+  border-color: var(--color-success) !important;
+  background: var(--color-success-dim) !important;
+  color: var(--color-success) !important;
 }
 
 .wsl-net-popover {
@@ -495,7 +533,7 @@ select.form-input {
   margin-top: 4px;
   min-width: 260px;
   background: var(--color-surface);
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  border: 1px solid var(--color-secondary-border);
   border-radius: var(--radius-md);
   z-index: 50;
   box-shadow: var(--shadow-popup);
@@ -528,8 +566,8 @@ select.form-input {
 
 .wsl-net-val {
   font-size: 0.72rem;
-  color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
+  color: var(--color-secondary);
+  background: var(--color-secondary-dim);
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-xs);
 }
@@ -542,13 +580,13 @@ select.form-input {
 }
 
 .wsl-net-status.ok {
-  color: #34d399;
-  background: rgba(52, 211, 153, 0.1);
+  color: var(--color-success);
+  background: var(--color-success-dim);
 }
 
 .wsl-net-status.off {
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.1);
+  color: var(--color-error);
+  background: var(--color-error-dim);
 }
 
 .wsl-net-fix-btn {
@@ -567,12 +605,12 @@ select.form-input {
 }
 
 .wsl-net-hint code {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-overlay-light);
   padding: 0.05rem 0.25rem;
   border-radius: 2px;
   font-family: var(--font-mono);
   font-size: 0.68rem;
-  color: #e2e8f0;
+  color: var(--color-text);
 }
 
 /* ===== Theme select ===== */

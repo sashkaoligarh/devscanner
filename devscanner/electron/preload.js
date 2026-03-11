@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('electron', {
   sshNginxInstall: (opts) => ipcRenderer.invoke('ssh-nginx-install', opts),
   sshCertbotInstall: (opts) => ipcRenderer.invoke('ssh-certbot-install', opts),
   sshCertbotRun: (opts) => ipcRenderer.invoke('ssh-certbot-run', opts),
+  sshListeningPorts: (opts) => ipcRenderer.invoke('ssh-listening-ports', opts),
 
   // Service management (Phase 6)
   sshPm2Action: (opts) => ipcRenderer.invoke('ssh-pm2-action', opts),

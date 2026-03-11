@@ -8,6 +8,12 @@ function registerNginxHandlers(ipcMain, ctx) {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
 
+      // Check if nginx is installed
+      const whichResult = await sshExec(client, 'which nginx 2>/dev/null').catch(() => ({ stdout: '' }))
+      if (!whichResult.stdout.trim()) {
+        return { success: false, error: 'nginx_not_installed' }
+      }
+
       const [available, enabled] = await Promise.all([
         sshExec(client, 'ls /etc/nginx/sites-available/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => []),
         sshExec(client, 'ls /etc/nginx/sites-enabled/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => [])
@@ -183,6 +189,50 @@ function registerNginxHandlers(ipcMain, ctx) {
     }
   })
 
+  // Get listening ports on the remote server (with sudo for full process info)
+  ipcMain.handle('ssh-listening-ports', async (_, { serverId }) => {
+    try {
+      const client = getSSHClient(serverId)
+      if (!client) return { success: false, error: 'Not connected' }
+      const password = getServerPassword(serverId)
+
+      // Try with sudo first to get process names, fall back to without
+      let stdout = ''
+      try {
+        const res = await sshExecSudo(client, 'ss -tlnp 2>/dev/null', password, 10000)
+        stdout = res.stdout || ''
+      } catch {
+        const res = await sshExec(client, 'ss -tlnp 2>/dev/null')
+        stdout = res.stdout || ''
+      }
+
+      if (!stdout.trim()) return { success: true, data: [] }
+      const results = []
+      const lines = stdout.split('\n').slice(1)
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const parts = line.trim().split(/\s+/)
+        if (parts.length < 5) continue
+        const localAddr = parts[3]
+        const lastColon = localAddr.lastIndexOf(':')
+        if (lastColon === -1) continue
+        const address = localAddr.substring(0, lastColon)
+        const port = parseInt(localAddr.substring(lastColon + 1), 10)
+        if (isNaN(port)) continue
+        let processName = '', pid = null
+        const processCol = parts.slice(5).join(' ')
+        const pidMatch = processCol.match(/pid=(\d+)/)
+        const nameMatch = processCol.match(/\("([^"]+)"/)
+        if (pidMatch) pid = parseInt(pidMatch[1], 10)
+        if (nameMatch) processName = nameMatch[1]
+        results.push({ port, address, processName, pid })
+      }
+      return { success: true, data: results }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
   // Run certbot for a domain
   ipcMain.handle('ssh-certbot-run', async (_, { serverId, domain }) => {
     try {
@@ -193,12 +243,19 @@ function registerNginxHandlers(ipcMain, ctx) {
       const safeDomain = domain.replace(/[^a-zA-Z0-9.-]/g, '')
       if (!safeDomain) return { success: false, error: 'Invalid domain' }
 
+      // Check if certbot is installed
+      const whichResult = await sshExec(client, 'which certbot 2>/dev/null').catch(() => ({ stdout: '' }))
+      if (!whichResult.stdout.trim()) {
+        return { success: false, error: 'certbot_not_installed' }
+      }
+
       const result = await sshExecSudo(client,
         `certbot --nginx -d ${safeDomain} --non-interactive --agree-tos --register-unsafely-without-email 2>&1`,
         password, 120000
       )
+      const output = (result.stdout || '') + (result.stderr || '')
       const ok = result.code === 0
-      return { success: ok, data: { output: result.stdout + result.stderr }, error: ok ? undefined : 'Certbot failed' }
+      return { success: ok, data: { output }, error: ok ? undefined : (output || 'Certbot failed') }
     } catch (err) {
       return { success: false, error: err.message }
     }

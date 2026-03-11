@@ -98,6 +98,7 @@ const electron = {
   sshNginxInstall: (o) => window.electron?.sshNginxInstall?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshCertbotInstall: (o) => window.electron?.sshCertbotInstall?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshCertbotRun: (o) => window.electron?.sshCertbotRun?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshListeningPorts: (o) => window.electron?.sshListeningPorts?.(o) ?? Promise.resolve({ success: false, data: [] }),
   // Phase 6: Service management
   sshPm2Action: (o) => window.electron?.sshPm2Action?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshPm2Logs: (o) => window.electron?.sshPm2Logs?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),

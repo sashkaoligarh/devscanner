@@ -89,7 +89,7 @@
 }
 
 .ds-dot-starting {
-  background: #ffaa00;
+  background: var(--color-warning);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -98,7 +98,7 @@
 }
 
 .ds-dot-stopped {
-  background: #555;
+  background: var(--color-text-muted);
 }
 
 @keyframes pulse {

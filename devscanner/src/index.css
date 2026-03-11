@@ -121,13 +121,13 @@ body {
 }
 
 .wc-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--color-surface-hover);
   color: var(--color-text);
 }
 
 .wc-close:hover {
-  background: #c42b1c;
-  color: #fff;
+  background: var(--color-close-bg);
+  color: var(--color-close-text);
 }
 
 .search-input {
@@ -707,9 +707,9 @@ body {
   font-size: 0.55rem;
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  background: rgba(130, 80, 255, 0.15);
-  color: #a78bfa;
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary);
+  border: 1px solid var(--color-secondary-border);
   margin-left: 0.5rem;
   vertical-align: middle;
   font-family: var(--font-mono);
@@ -720,14 +720,14 @@ body {
 /* WSL button & dropdown */
 
 .btn-wsl {
-  border-color: rgba(130, 80, 255, 0.4);
-  color: #a78bfa;
+  border-color: var(--color-secondary-border);
+  color: var(--color-secondary);
 }
 
 .btn-wsl:hover {
-  border-color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  border-color: var(--color-secondary);
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .wsl-dropdown {
@@ -737,11 +737,11 @@ body {
   margin-top: 4px;
   min-width: 160px;
   background: var(--color-surface);
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  border: 1px solid var(--color-secondary-border);
   border-radius: 6px;
   overflow: hidden;
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-popup);
 }
 
 .wsl-dropdown-item {
@@ -759,8 +759,8 @@ body {
 }
 
 .wsl-dropdown-item:hover {
-  background: rgba(130, 80, 255, 0.1);
-  color: #c4b5fd;
+  background: var(--color-secondary-dim);
+  color: var(--color-secondary-text);
 }
 
 .wsl-dropdown-item:not(:last-child) {
@@ -768,14 +768,14 @@ body {
 }
 
 .btn-wsl-ok {
-  border-color: rgba(52, 211, 153, 0.4) !important;
-  color: #34d399 !important;
+  border-color: var(--color-success-border) !important;
+  color: var(--color-success) !important;
 }
 
 .btn-wsl-ok:hover {
-  border-color: #34d399 !important;
-  background: rgba(52, 211, 153, 0.08) !important;
-  color: #6ee7b7 !important;
+  border-color: var(--color-success) !important;
+  background: var(--color-success-dim) !important;
+  color: var(--color-success) !important;
 }
 
 .wsl-net-popover {
@@ -785,10 +785,10 @@ body {
   margin-top: 4px;
   min-width: 260px;
   background: var(--color-surface);
-  border: 1px solid rgba(130, 80, 255, 0.3);
+  border: 1px solid var(--color-secondary-border);
   border-radius: 6px;
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-popup);
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -818,8 +818,8 @@ body {
 
 .wsl-net-val {
   font-size: 0.72rem;
-  color: #a78bfa;
-  background: rgba(130, 80, 255, 0.1);
+  color: var(--color-secondary);
+  background: var(--color-secondary-dim);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
 }
@@ -832,13 +832,13 @@ body {
 }
 
 .wsl-net-status.ok {
-  color: #34d399;
-  background: rgba(52, 211, 153, 0.1);
+  color: var(--color-success);
+  background: var(--color-success-dim);
 }
 
 .wsl-net-status.off {
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.1);
+  color: var(--color-error);
+  background: var(--color-error-dim);
 }
 
 .wsl-net-fix-btn {
@@ -857,12 +857,12 @@ body {
 }
 
 .wsl-net-hint code {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-overlay-light);
   padding: 0.05rem 0.25rem;
   border-radius: 2px;
   font-family: var(--font-mono);
   font-size: 0.68rem;
-  color: #e2e8f0;
+  color: var(--color-text);
 }
 
 /* Docker-compose badge */
@@ -949,7 +949,7 @@ body {
   color: var(--color-accent);
   font-size: 0.6rem;
   padding: 0.05rem 0.3rem;
-  background: rgba(0, 255, 136, 0.08);
+  background: var(--color-accent-dim);
   border-radius: 2px;
 }
 
