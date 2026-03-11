@@ -39,7 +39,18 @@ function registerNginxHandlers(ipcMain, ctx) {
       const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
       if (!safeName) return { success: false, error: 'Invalid site name' }
 
-      const { stdout } = await sshExec(client, `cat /etc/nginx/sites-available/${safeName}`)
+      // Read from sites-enabled (may differ from sites-available after certbot)
+      let stdout
+      try {
+        const enabledRes = await sshExec(client, `cat /etc/nginx/sites-enabled/${safeName} 2>/dev/null`)
+        stdout = enabledRes.stdout
+      } catch {
+        stdout = ''
+      }
+      if (!stdout.trim()) {
+        const availRes = await sshExec(client, `cat /etc/nginx/sites-available/${safeName}`)
+        stdout = availRes.stdout
+      }
       const parsed = parseNginxConfig(stdout)
 
       return { success: true, data: { raw: stdout, parsed, name: safeName } }

@@ -674,44 +674,15 @@ select.form-input option:hover {
 /* ===== Theme select ===== */
 
 .theme-select-wrapper {
-  position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   -webkit-app-region: no-drag;
   flex-shrink: 0;
 }
 
 .theme-select-icon {
-  position: absolute;
-  left: 8px;
   color: var(--color-text-dim);
-  pointer-events: none;
-}
-
-.theme-select {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-dim);
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-  padding: 5px 24px 5px 28px;
-  cursor: pointer;
-  transition: all 0.2s;
-  outline: none;
-}
-
-.theme-select:hover,
-.theme-select:focus {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-  background: var(--color-accent-dim);
-}
-
-.theme-select option {
-  background: var(--color-bg-elevated);
-  color: var(--color-text);
 }
 
 /* ===== Custom Select Component ===== */
@@ -808,4 +779,20 @@ select.form-input option:hover {
   background: var(--color-accent-dim);
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* Compact variant for header / toolbar */
+.custom-select-sm .custom-select-trigger {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  background: transparent;
+}
+
+.custom-select-sm .custom-select-option {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.72rem;
+}
+
+.custom-select-sm .custom-select-dropdown {
+  min-width: 100px;
 }

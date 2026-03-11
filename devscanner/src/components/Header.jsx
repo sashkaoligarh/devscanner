@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import electron from '../electronApi'
 import WindowControls from './WindowControls'
+import CustomSelect from './CustomSelect'
 
 export default function Header({
   folderPath, scanning, searchQuery, setSearchQuery,
@@ -175,8 +176,8 @@ export default function Header({
     localStorage.setItem('devscanner-theme', theme)
   }, [theme])
 
-  const handleThemeChange = useCallback((e) => {
-    setTheme(e.target.value)
+  const handleThemeChange = useCallback((v) => {
+    setTheme(v)
   }, [])
 
   const handleFixWslLocalhost = useCallback(async () => {
@@ -395,9 +396,13 @@ export default function Header({
       </div>
       <div className="theme-select-wrapper">
         <Palette size={14} className="theme-select-icon" />
-        <select className="theme-select" value={theme} onChange={handleThemeChange} title="Theme">
-          {THEMES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
+        <CustomSelect
+          className="custom-select-sm"
+          value={theme}
+          onChange={handleThemeChange}
+          options={THEMES.map(t => ({ value: t.id, label: t.label }))}
+          style={{ minWidth: '100px' }}
+        />
       </div>
       <WindowControls isMaximized={isMaximized} />
     </header>

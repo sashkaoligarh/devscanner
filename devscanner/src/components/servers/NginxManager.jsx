@@ -198,6 +198,8 @@ export default function NginxManager({ serverId }) {
       setTestResult({ ok: false, output: 'SSL failed: ' + (result.error || 'Unknown error') })
     } else {
       setTestResult({ ok: true, output: result.data?.output || 'SSL certificate installed successfully' })
+      // Small delay to let certbot finish writing config
+      await new Promise(r => setTimeout(r, 1000))
       await loadSites()
       if (selectedSite) await refreshSite(selectedSite)
     }
