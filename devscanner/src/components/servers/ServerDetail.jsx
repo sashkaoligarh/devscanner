@@ -1,17 +1,79 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
-import { Package, RefreshCw, Wifi, WifiOff, Play, Square, RotateCcw, Trash2, FileText, Loader } from 'lucide-react'
+import { Package, RefreshCw, Wifi, WifiOff, Play, Square, RotateCcw, Trash2, FileText, Loader, Settings } from 'lucide-react'
 import RemoteProjectManager from './RemoteProjectManager'
 import NginxManager from './NginxManager'
 import QuickDeploy from './QuickDeploy'
 import AuthorizedKeys from './AuthorizedKeys'
+import XTerminal from '../terminal/XTerminal'
+import TerminalToolbar from '../terminal/TerminalToolbar'
+import CommandHistory from '../terminal/CommandHistory'
+import SSHKeysSettings from '../settings/SSHKeysSettings'
+import ThemeSettings from '../settings/ThemeSettings'
+import ShortcutSettings from '../settings/ShortcutSettings'
 import electron from '../../electronApi'
 
 export default function ServerDetail({
   server, disc, isConnected, discovering, connections, serverSubTab,
   terminalOutput, terminalInput, remoteRunning, remoteLogs,
   onSetActiveServer, onSetSubTab, onConnect, onDisconnect, onDiscover,
-  onExec, onSetTerminalInput
+  onExec, onSetTerminalInput, terminalHook, onOpenSettings
 }) {
+  const [terminalConnected, setTerminalConnected] = useState(false)
+  const [terminalLoading, setTerminalLoading] = useState(false)
+  const [terminalError, setTerminalError] = useState(null)
+  const [isFullscreen, setIsFullscreen] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
+  const [settingsSubTab, setSettingsSubTab] = useState('keys')
+  const terminalInitRef = useRef(false)
+
+  // Open terminal session when terminal tab is selected
+  useEffect(() => {
+    if (serverSubTab !== 'terminal' || !isConnected) return
+    if (terminalHook?.sessionStatus?.[server.id] === 'connected') {
+      setTerminalConnected(true)
+      return
+    }
+    if (terminalInitRef.current) return
+    terminalInitRef.current = true
+
+    setTerminalLoading(true)
+    setTerminalError(null)
+    terminalHook?.openTerminal(server.id).then(result => {
+      setTerminalLoading(false)
+      if (result.success) {
+        setTerminalConnected(true)
+      } else {
+        setTerminalError(result.error)
+        setTerminalConnected(false)
+      }
+      terminalInitRef.current = false
+    })
+  }, [serverSubTab, isConnected, server.id])
+
+  // Reset terminal state when switching away
+  useEffect(() => {
+    if (serverSubTab !== 'terminal') {
+      terminalInitRef.current = false
+    }
+  }, [serverSubTab])
+
+  const handleReconnect = useCallback(async () => {
+    setTerminalLoading(true)
+    setTerminalError(null)
+    setTerminalConnected(false)
+    await terminalHook?.closeTerminal(server.id)
+    const result = await terminalHook?.openTerminal(server.id)
+    setTerminalLoading(false)
+    if (result?.success) {
+      setTerminalConnected(true)
+    } else {
+      setTerminalError(result?.error || 'Reconnection failed')
+    }
+  }, [server.id, terminalHook])
+
+  const handleDisconnect = useCallback((reason) => {
+    setTerminalConnected(false)
+  }, [])
   return (
     <div className="port-scanner">
       <div className="port-scanner-toolbar">
@@ -43,12 +105,13 @@ export default function ServerDetail({
 
       {isConnected && (
         <div className="server-sub-tabs">
-          {['services', 'nginx', 'projects', 'deploy', 'keys', 'ports', 'terminal'].map(tab => (
+          {['services', 'nginx', 'projects', 'deploy', 'keys', 'ports', 'terminal', 'settings'].map(tab => (
             <button
               key={tab}
               className={`server-sub-tab${serverSubTab === tab ? ' active' : ''}`}
               onClick={() => onSetSubTab(tab)}
             >
+              {tab === 'settings' && <Settings size={11} style={{ marginRight: '3px' }} />}
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
@@ -84,13 +147,78 @@ export default function ServerDetail({
       ) : serverSubTab === 'ports' ? (
         <ServerPorts ports={disc?.ports || []} />
       ) : serverSubTab === 'terminal' ? (
-        <ServerTerminal
-          serverId={server.id}
-          output={terminalOutput[server.id] || []}
-          input={terminalInput}
-          onSetInput={onSetTerminalInput}
-          onExec={onExec}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <TerminalToolbar
+            serverName={server.name}
+            connected={terminalConnected}
+            onReconnect={handleReconnect}
+            onToggleFullscreen={() => setIsFullscreen(f => !f)}
+            onOpenSettings={() => onSetSubTab('settings')}
+            onToggleHistory={() => setShowHistory(h => !h)}
+            isFullscreen={isFullscreen}
+            showHistory={showHistory}
+          />
+          {terminalLoading ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <div className="spinner" />
+              <div className="empty-state-text">Connecting to terminal...</div>
+            </div>
+          ) : terminalError ? (
+            <div className="empty-state" style={{ flex: 1 }}>
+              <WifiOff size={48} className="empty-state-icon" />
+              <div className="empty-state-text">{terminalError}</div>
+              <button className="btn btn-primary" onClick={handleReconnect}>
+                <RefreshCw size={14} /> Retry
+              </button>
+            </div>
+          ) : terminalConnected ? (
+            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+              <XTerminal
+                serverId={server.id}
+                theme={terminalHook?.activeTheme}
+                shortcuts={terminalHook?.shortcuts}
+                fontSize={terminalHook?.terminalSettings?.fontSize}
+                scrollbackLimit={terminalHook?.terminalSettings?.scrollbackLimit}
+                cursorBlink={terminalHook?.terminalSettings?.cursorBlink}
+                cursorStyle={terminalHook?.terminalSettings?.cursorStyle}
+                onDisconnect={handleDisconnect}
+                onReconnect={handleReconnect}
+              />
+              <CommandHistory
+                serverId={server.id}
+                visible={showHistory}
+                onClose={() => setShowHistory(false)}
+                onInsertCommand={(cmd) => {
+                  electron.sendTerminalInput(server.id, cmd)
+                  setShowHistory(false)
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : serverSubTab === 'settings' ? (
+        <div className="main" style={{ overflow: 'auto' }}>
+          <div className="settings-inline-tabs">
+            {[
+              { id: 'keys', label: 'SSH Keys' },
+              { id: 'themes', label: 'Themes' },
+              { id: 'shortcuts', label: 'Shortcuts' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                className={`settings-inline-tab${settingsSubTab === tab.id ? ' active' : ''}`}
+                onClick={() => setSettingsSubTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="settings-inline-content">
+            {settingsSubTab === 'keys' && <SSHKeysSettings />}
+            {settingsSubTab === 'themes' && <ThemeSettings terminalHook={terminalHook} />}
+            {settingsSubTab === 'shortcuts' && <ShortcutSettings terminalHook={terminalHook} />}
+          </div>
+        </div>
       ) : null}
     </div>
   )

@@ -7,6 +7,7 @@ const { isWslPath, parseWslPath } = require('./utils/context')
 const { runningProcesses } = require('./utils/process')
 const { sshConnections } = require('./utils/ssh-pool')
 const { dockerHealthPollingTimers } = require('./utils/docker-services')
+const { terminalSessions } = require('./utils/terminal-sessions')
 
 // --- Handler registrations ---
 const { registerWindowHandlers } = require('./handlers/window')
@@ -25,6 +26,9 @@ const { registerNginxHandlers } = require('./handlers/nginx')
 const { registerDeployHandlers } = require('./handlers/deploy')
 const { registerSshServiceHandlers } = require('./handlers/ssh-services')
 const { registerUpdaterHandlers, setupAutoUpdater } = require('./handlers/updater')
+const { registerSshTerminalHandlers } = require('./handlers/ssh-terminal')
+const { registerTerminalSettingsHandlers } = require('./handlers/terminal-settings')
+const { registerCommandHistoryHandlers } = require('./handlers/command-history')
 
 // --- App configuration ---
 app.commandLine.appendSwitch('no-sandbox')
@@ -98,6 +102,9 @@ app.whenReady().then(() => {
   registerDeployHandlers(ipcMain, ctx)
   registerSshServiceHandlers(ipcMain)
   registerUpdaterHandlers(ipcMain, ctx)
+  registerSshTerminalHandlers(ipcMain, ctx)
+  registerTerminalSettingsHandlers(ipcMain)
+  registerCommandHistoryHandlers(ipcMain)
 
   setupAutoUpdater(ctx)
 })
@@ -154,6 +161,13 @@ app.on('before-quit', () => {
     clearInterval(timerId)
   }
   dockerHealthPollingTimers.clear()
+
+  // Close all terminal sessions
+  for (const [, session] of terminalSessions) {
+    try { session.stream.close() } catch {}
+    try { session.client.end() } catch {}
+  }
+  terminalSessions.clear()
 
   // Close all SSH connections
   for (const [, conn] of sshConnections) {

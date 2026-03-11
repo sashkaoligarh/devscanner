@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { Upload, Folder, Globe, ChevronRight, Check, AlertCircle, X, Server, Lock, Shield, Trash2, GitBranch, Key } from 'lucide-react'
+import CustomSelect from '../CustomSelect'
 import electron from '../../electronApi'
 import DeployKeys from './DeployKeys'
 
@@ -290,17 +291,16 @@ export default function QuickDeploy({ serverId, onClose, onRefresh }) {
               <div className="deploy-field">
                 <label>Deploy Key (for private repos)</label>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <select
-                    className="input"
+                  <CustomSelect
                     value={deployKeyId}
-                    onChange={e => setDeployKeyId(e.target.value)}
+                    onChange={setDeployKeyId}
                     style={{ flex: 1 }}
-                  >
-                    <option value="">None (public repo)</option>
-                    {deployKeys.map(k => (
-                      <option key={k.id} value={k.id}>{k.name}</option>
-                    ))}
-                  </select>
+                    placeholder="None (public repo)"
+                    options={[
+                      { value: '', label: 'None (public repo)' },
+                      ...deployKeys.map(k => ({ value: k.id, label: k.name }))
+                    ]}
+                  />
                   <button className="btn btn-sm" onClick={() => setShowDeployKeys(true)} title="Manage Deploy Keys">
                     <Key size={11} />
                   </button>

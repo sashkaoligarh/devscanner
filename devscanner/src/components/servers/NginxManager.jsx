@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Save, Check, X, Shield, RefreshCw, Trash2, ToggleLeft, ToggleRight, Loader, FileText, AlertTriangle, Wifi } from 'lucide-react'
+import CustomSelect from '../CustomSelect'
 import electron from '../../electronApi'
 
 export default function NginxManager({ serverId }) {
@@ -329,19 +330,16 @@ export default function NginxManager({ serverId }) {
             onChange={e => setNewSiteName(e.target.value)}
             placeholder="new-site-name"
           />
-          <select
-            style={{
-              width: '100%', marginBottom: '0.25rem', fontSize: '0.72rem', padding: '0.3rem 0.5rem',
-              background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-              color: 'var(--color-text)', fontFamily: 'var(--font-mono)', outline: 'none', boxSizing: 'border-box'
-            }}
+          <CustomSelect
             value={newSiteTemplate}
-            onChange={e => setNewSiteTemplate(e.target.value)}
-          >
-            <option value="static">Static Site</option>
-            <option value="proxy">Reverse Proxy</option>
-            <option value="redirect">Redirect</option>
-          </select>
+            onChange={setNewSiteTemplate}
+            style={{ width: '100%', marginBottom: '0.25rem' }}
+            options={[
+              { value: 'static', label: 'Static Site' },
+              { value: 'proxy', label: 'Reverse Proxy' },
+              { value: 'redirect', label: 'Redirect' }
+            ]}
+          />
           <button
             className="btn btn-primary btn-sm"
             style={{ width: '100%' }}
@@ -406,21 +404,21 @@ export default function NginxManager({ serverId }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <div className="form-row">
                   <label style={{ width: '100px', fontSize: '0.75rem' }}>Type</label>
-                  <select
-                    className="server-terminal-cmd"
+                  <CustomSelect
                     style={{ flex: 1 }}
                     value={visualConfig.type}
-                    onChange={e => setVisualConfig(prev => ({ ...prev, type: e.target.value }))}
-                  >
-                    <option value="static">Static Site</option>
-                    <option value="proxy">Reverse Proxy</option>
-                    <option value="redirect">HTTP &rarr; HTTPS Redirect</option>
-                  </select>
+                    onChange={v => setVisualConfig(prev => ({ ...prev, type: v }))}
+                    options={[
+                      { value: 'static', label: 'Static Site' },
+                      { value: 'proxy', label: 'Reverse Proxy' },
+                      { value: 'redirect', label: 'HTTP → HTTPS Redirect' }
+                    ]}
+                  />
                 </div>
                 <div className="form-row">
                   <label style={{ width: '100px', fontSize: '0.75rem' }}>server_name</label>
                   <input
-                    className="server-terminal-cmd"
+                    className="form-input"
                     style={{ flex: 1 }}
                     value={visualConfig.serverName}
                     onChange={e => setVisualConfig(prev => ({ ...prev, serverName: e.target.value }))}
@@ -430,7 +428,7 @@ export default function NginxManager({ serverId }) {
                 <div className="form-row">
                   <label style={{ width: '100px', fontSize: '0.75rem' }}>listen</label>
                   <input
-                    className="server-terminal-cmd"
+                    className="form-input"
                     style={{ flex: 1 }}
                     value={visualConfig.listen}
                     onChange={e => setVisualConfig(prev => ({ ...prev, listen: e.target.value }))}
@@ -441,7 +439,7 @@ export default function NginxManager({ serverId }) {
                   <div className="form-row">
                     <label style={{ width: '100px', fontSize: '0.75rem' }}>root</label>
                     <input
-                      className="server-terminal-cmd"
+                      className="form-input"
                       style={{ flex: 1 }}
                       value={visualConfig.root}
                       onChange={e => setVisualConfig(prev => ({ ...prev, root: e.target.value }))}
@@ -454,30 +452,29 @@ export default function NginxManager({ serverId }) {
                     <label style={{ width: '100px', fontSize: '0.75rem' }}>proxy_pass</label>
                     <div style={{ flex: 1, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <input
-                        className="server-terminal-cmd"
+                        className="form-input"
                         style={{ flex: 1 }}
                         value={visualConfig.proxyPass}
                         onChange={e => setVisualConfig(prev => ({ ...prev, proxyPass: e.target.value }))}
                         placeholder="http://localhost:3000"
                       />
                       {availablePorts.length > 0 && (
-                        <select
-                          className="server-terminal-cmd"
-                          style={{ width: 'auto', minWidth: '120px' }}
+                        <CustomSelect
+                          style={{ width: 'auto', minWidth: '140px' }}
                           value=""
-                          onChange={e => {
-                            if (e.target.value) {
-                              setVisualConfig(prev => ({ ...prev, proxyPass: `http://localhost:${e.target.value}` }))
+                          onChange={v => {
+                            if (v) {
+                              setVisualConfig(prev => ({ ...prev, proxyPass: `http://localhost:${v}` }))
                             }
                           }}
-                        >
-                          <option value="">Select port...</option>
-                          {availablePorts.map((p, i) => (
-                            <option key={i} value={p.port}>
-                              :{p.port} {p.processName}{p.pid ? ` (${p.pid})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          options={[
+                            { value: '', label: 'Select port...' },
+                            ...availablePorts.map(p => ({
+                              value: String(p.port),
+                              label: `:${p.port} ${p.processName || ''}${p.pid ? ` (${p.pid})` : ''}`
+                            }))
+                          ]}
+                        />
                       )}
                     </div>
                   </div>

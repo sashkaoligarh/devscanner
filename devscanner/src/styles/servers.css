@@ -579,6 +579,44 @@
   resize: vertical;
 }
 
+/* --- Inline Settings Tabs --- */
+
+.settings-inline-tabs {
+  display: flex;
+  gap: 0.15rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+}
+
+.settings-inline-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.settings-inline-tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.settings-inline-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.settings-inline-content {
+  max-width: 600px;
+}
+
 .deploy-log {
   max-height: 150px;
   overflow-y: auto;

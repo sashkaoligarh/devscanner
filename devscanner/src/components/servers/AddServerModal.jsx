@@ -1,5 +1,7 @@
-import React, { useState } from 'react'
-import { Wifi, Loader } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Wifi, Loader, Key } from 'lucide-react'
+import CustomSelect from '../CustomSelect'
+import electron from '../../electronApi'
 
 export default function AddServerModal({ onAdd, onClose }) {
   const [name, setName] = useState('')
@@ -9,8 +11,20 @@ export default function AddServerModal({ onAdd, onClose }) {
   const [authType, setAuthType] = useState('password')
   const [password, setPassword] = useState('')
   const [privateKey, setPrivateKey] = useState('')
+  const [keySource, setKeySource] = useState('library') // 'library' or 'manual'
+  const [sshKeyId, setSshKeyId] = useState('')
+  const [libraryKeys, setLibraryKeys] = useState([])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+
+  // Load SSH keys from library when auth type is 'key'
+  useEffect(() => {
+    if (authType === 'key') {
+      electron.sshKeysList().then(result => {
+        if (result.success) setLibraryKeys(result.data || [])
+      })
+    }
+  }, [authType])
 
   const handleSubmit = async () => {
     if (!name.trim()) return setError('Name is required')
@@ -23,9 +37,16 @@ export default function AddServerModal({ onAdd, onClose }) {
       host: host.trim(),
       port: parseInt(port, 10) || 22,
       username: username.trim(),
-      authType,
-      ...(authType === 'password' ? { password } : { privateKey })
+      authType
     }
+    if (authType === 'password') {
+      serverData.password = password
+    } else if (keySource === 'library' && sshKeyId) {
+      serverData.sshKeyId = sshKeyId
+    } else {
+      serverData.privateKey = privateKey
+    }
+
     const result = await onAdd(serverData)
     setLoading(false)
     if (result.success) {
@@ -77,16 +98,49 @@ export default function AddServerModal({ onAdd, onClose }) {
           </div>
         ) : (
           <div className="form-group">
-            <label className="form-label">Private Key</label>
-            <textarea
-              className="form-input"
-              value={privateKey}
-              onChange={e => setPrivateKey(e.target.value)}
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-              rows={5}
-              spellCheck={false}
-              style={{ fontFamily: 'monospace', fontSize: '11px', resize: 'vertical' }}
-            />
+            <div className="radio-group" style={{ marginBottom: '0.5rem' }}>
+              <label className="radio-label">
+                <input type="radio" checked={keySource === 'library'} onChange={() => setKeySource('library')} />
+                From Library
+              </label>
+              <label className="radio-label">
+                <input type="radio" checked={keySource === 'manual'} onChange={() => setKeySource('manual')} />
+                Paste Manually
+              </label>
+            </div>
+            {keySource === 'library' ? (
+              <>
+                <label className="form-label">Select Key</label>
+                {libraryKeys.length > 0 ? (
+                  <CustomSelect
+                    value={sshKeyId}
+                    onChange={setSshKeyId}
+                    placeholder="— Select SSH key —"
+                    options={libraryKeys.map(k => ({
+                      value: k.id,
+                      label: `${k.label} (${k.keyType?.toUpperCase()})`
+                    }))}
+                  />
+                ) : (
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-dim)', padding: '0.5rem 0' }}>
+                    No keys in library. Go to server Settings tab to manage keys.
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <label className="form-label">Private Key</label>
+                <textarea
+                  className="form-input"
+                  value={privateKey}
+                  onChange={e => setPrivateKey(e.target.value)}
+                  placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"}
+                  rows={5}
+                  spellCheck={false}
+                  style={{ fontFamily: 'monospace', fontSize: '11px', resize: 'vertical' }}
+                />
+              </>
+            )}
           </div>
         )}
         {error && <div className="form-error">{error}</div>}

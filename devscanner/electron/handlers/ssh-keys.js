@@ -1,7 +1,9 @@
 const crypto = require('crypto')
-const { safeStorage } = require('electron')
+const fs = require('fs')
+const { safeStorage, dialog } = require('electron')
 const { getSSHClient, sshExec, sshExecSudo, getServerPassword } = require('../utils/ssh-pool')
 const { loadSettings, saveSettings } = require('../utils/settings-store')
+const { validateSSHKey, encryptKeyData, encryptPassphrase } = require('../utils/ssh-key-manager')
 
 function fingerprint(keyData) {
   try {
@@ -139,6 +141,117 @@ function registerSshKeysHandlers(ipcMain) {
       }
     } catch (err) {
       return { success: false, error: err.message }
+    }
+  })
+
+  // --- SSH Key Library ---
+
+  ipcMain.handle('ssh-keys:list', async () => {
+    try {
+      const settings = loadSettings()
+      const keys = (settings.sshKeys || []).map(k => ({
+        id: k.id,
+        label: k.label,
+        keyType: k.keyType,
+        fingerprint: k.fingerprint,
+        hasPassphrase: k.hasPassphrase,
+        passphraseStored: k.passphraseStored,
+        createdAt: k.createdAt
+      }))
+      return { success: true, data: keys }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('ssh-keys:add', async (_, { label, privateKeyData, passphrase }) => {
+    try {
+      const validation = validateSSHKey(privateKeyData, passphrase)
+      if (!validation.valid) {
+        return { success: false, error: validation.error }
+      }
+
+      const settings = loadSettings()
+      const sshKeys = settings.sshKeys || []
+      const id = crypto.randomUUID()
+
+      const keyEntry = {
+        id,
+        label: label || 'Untitled Key',
+        keyType: validation.keyType,
+        fingerprint: validation.fingerprint,
+        encryptedKeyData: encryptKeyData(privateKeyData),
+        hasPassphrase: !!passphrase,
+        passphraseStored: !!passphrase,
+        encryptedPassphrase: passphrase ? encryptPassphrase(passphrase) : null,
+        createdAt: new Date().toISOString()
+      }
+
+      sshKeys.push(keyEntry)
+      saveSettings({ sshKeys })
+
+      return {
+        success: true,
+        data: {
+          id: keyEntry.id,
+          label: keyEntry.label,
+          keyType: keyEntry.keyType,
+          fingerprint: keyEntry.fingerprint,
+          hasPassphrase: keyEntry.hasPassphrase,
+          passphraseStored: keyEntry.passphraseStored,
+          createdAt: keyEntry.createdAt
+        }
+      }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('ssh-keys:delete', async (_, { keyId }) => {
+    try {
+      const settings = loadSettings()
+      const sshKeys = (settings.sshKeys || []).filter(k => k.id !== keyId)
+      const servers = settings.remoteServers || []
+
+      // Find affected servers and clear their sshKeyId reference
+      const affectedServers = []
+      const updatedServers = servers.map(s => {
+        if (s.sshKeyId === keyId) {
+          affectedServers.push(s.name || s.host)
+          const { sshKeyId, ...rest } = s
+          return rest
+        }
+        return s
+      })
+
+      saveSettings({ sshKeys, remoteServers: updatedServers })
+      return { success: true, data: { affectedServers } }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('ssh-keys:import-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Import SSH Key',
+        properties: ['openFile'],
+        filters: [
+          { name: 'SSH Keys', extensions: ['pem', 'key', 'pub', ''] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      })
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: 'cancelled' }
+      }
+
+      const filePath = result.filePaths[0]
+      const privateKeyData = fs.readFileSync(filePath, 'utf-8')
+      const fileName = filePath.split(/[/\\]/).pop()
+      return { success: true, data: { privateKeyData, fileName } }
+    } catch (err) {
+      return { success: false, error: `Failed to read file: ${err.message}` }
     }
   })
 

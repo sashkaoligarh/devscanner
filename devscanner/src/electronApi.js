@@ -59,6 +59,30 @@ const electron = {
   dockerServicesInjectEnv: (o) => window.electron?.dockerServicesInjectEnv?.(o) ?? Promise.resolve({ success: false }),
   onDockerServicesHealth: (cb) => window.electron?.onDockerServicesHealth?.(cb),
   removeDockerServicesHealthListener: () => window.electron?.removeDockerServicesHealthListener?.(),
+  // Terminal session channels
+  terminalOpen: (o) => window.electron?.terminalOpen?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  terminalClose: (o) => window.electron?.terminalClose?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sendTerminalInput: (sessionId, data) => window.electron?.sendTerminalInput?.(sessionId, data),
+  sendTerminalResize: (sessionId, cols, rows) => window.electron?.sendTerminalResize?.(sessionId, cols, rows),
+  onTerminalOutput: (cb) => window.electron?.onTerminalOutput?.(cb),
+  removeTerminalOutputListener: () => window.electron?.removeTerminalOutputListener?.(),
+  onTerminalClosed: (cb) => window.electron?.onTerminalClosed?.(cb),
+  removeTerminalClosedListener: () => window.electron?.removeTerminalClosedListener?.(),
+  onTerminalError: (cb) => window.electron?.onTerminalError?.(cb),
+  removeTerminalErrorListener: () => window.electron?.removeTerminalErrorListener?.(),
+  // SSH key library channels
+  sshKeysList: () => window.electron?.sshKeysList?.() ?? Promise.resolve({ success: false, data: [] }),
+  sshKeysAdd: (o) => window.electron?.sshKeysAdd?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshKeysDelete: (o) => window.electron?.sshKeysDelete?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  sshKeysImportFile: () => window.electron?.sshKeysImportFile?.() ?? Promise.resolve({ success: false, error: 'Not available' }),
+  // Terminal settings channels
+  terminalSettingsGet: () => window.electron?.terminalSettingsGet?.() ?? Promise.resolve({ success: false, error: 'Not available' }),
+  terminalSettingsSave: (o) => window.electron?.terminalSettingsSave?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  // Command history channels
+  commandHistoryGet: (o) => window.electron?.commandHistoryGet?.(o) ?? Promise.resolve({ success: false, data: [] }),
+  commandHistoryAdd: (o) => window.electron?.commandHistoryAdd?.(o) ?? Promise.resolve({ success: false }),
+  commandHistoryClear: (o) => window.electron?.commandHistoryClear?.(o) ?? Promise.resolve({ success: false }),
+
   sshConnect: (o) => window.electron?.sshConnect?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshDisconnect: (o) => window.electron?.sshDisconnect?.(o) ?? Promise.resolve({ success: false }),
   sshDiscover: (o) => window.electron?.sshDiscover?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),

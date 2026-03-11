@@ -82,8 +82,12 @@ function registerSshHandlers(ipcMain, ctx) {
         toSave.encryptedPassword = safeStorage.encryptString(toSave.password).toString('base64')
         delete toSave.password
       }
-      // Encrypt private key
-      if (toSave.privateKey && safeStorage.isEncryptionAvailable()) {
+      // Encrypt private key (skip if using key library)
+      if (toSave.sshKeyId) {
+        // Using key library — remove inline key data
+        delete toSave.privateKey
+        delete toSave.encryptedPrivateKey
+      } else if (toSave.privateKey && safeStorage.isEncryptionAvailable()) {
         toSave.encryptedPrivateKey = safeStorage.encryptString(toSave.privateKey).toString('base64')
         delete toSave.privateKey
       }
