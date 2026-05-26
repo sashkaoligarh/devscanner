@@ -24,6 +24,7 @@ import DockerContainers from './components/DockerContainers'
 import { ConsoleView, DockerConsoleView } from './components/ConsoleView'
 import RemoteServers from './components/servers/RemoteServers'
 import AddServerModal from './components/servers/AddServerModal'
+import DeploySetupModal from './components/servers/DeploySetupModal'
 import useTerminal from './hooks/useTerminal'
 
 export default function App() {
@@ -33,6 +34,7 @@ export default function App() {
   const [hostIp, setHostIp] = useState(null)
   const [wslDistros] = useState([])
   const [envModal, setEnvModal] = useState(null)
+  const [deploySetupModal, setDeploySetupModal] = useState(null)
 
   // Update state
   const [updateInfo, setUpdateInfo] = useState(null)
@@ -616,6 +618,7 @@ export default function App() {
                       hostIp={hostIp}
                       onEnvEdit={(p) => setEnvModal({ project: p })}
                       onDockerServices={(p) => openServicesModal(p)}
+                      onDeploySetup={(p) => setDeploySetupModal({ project: p })}
                       isDragOver={false}
                       onDragStart={handleDragStart}
                       onDragOver={handleDragOver}
@@ -690,6 +693,15 @@ export default function App() {
           catalog={serviceCatalog}
           healthStatus={dockerServicesHealth[dockerServicesModal.project.path] || {}}
           onClose={closeServicesModal}
+        />
+      )}
+
+      {deploySetupModal && (
+        <DeploySetupModal
+          project={deploySetupModal.project}
+          servers={remoteServers}
+          connections={serverConnections}
+          onClose={() => setDeploySetupModal(null)}
         />
       )}
 

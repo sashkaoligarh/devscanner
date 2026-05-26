@@ -49,12 +49,14 @@ describe('EnvEditorModal', () => {
     render(<EnvEditorModal project={makeProject()} onClose={vi.fn()} />)
 
     expect(screen.getByText('.env Editor')).toBeInTheDocument()
+    await screen.findByRole('textbox')
   })
 
   it('shows the security warning', async () => {
     render(<EnvEditorModal project={makeProject()} onClose={vi.fn()} />)
 
     expect(screen.getByText(/secrets/i)).toBeInTheDocument()
+    await screen.findByRole('textbox')
   })
 
   it('calls onClose when Close button is clicked', async () => {

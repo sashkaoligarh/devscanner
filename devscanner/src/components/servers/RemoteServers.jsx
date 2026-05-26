@@ -123,7 +123,7 @@ function RemoteServers({
                 onDelete={() => {
                   if (window.confirm(`Delete server "${server.name}"?`)) onDelete(server.id)
                 }}
-                onSelect={() => { onSetActiveServer(server.id); onSetSubTab('services') }}
+                onSelect={() => { onSetActiveServer(server.id); onSetSubTab('terminal') }}
               />
             ))}
           </div>

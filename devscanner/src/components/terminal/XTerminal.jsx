@@ -9,7 +9,7 @@ import electron from '../../electronApi'
 
 export default function XTerminal({
   serverId, theme, shortcuts, fontSize, scrollbackLimit,
-  cursorBlink, cursorStyle, onDisconnect, onReconnect
+  cursorBlink, cursorStyle, onDisconnect, terminalAction, searchRequest
 }) {
   const containerRef = useRef(null)
   const terminalRef = useRef(null)
@@ -50,7 +50,10 @@ export default function XTerminal({
 
     // Delay fit to ensure container has dimensions
     requestAnimationFrame(() => {
-      try { fitAddon.fit() } catch { /* container may not be visible yet */ }
+      try {
+        fitAddon.fit()
+        electron.sendTerminalResize(serverId, terminal.cols, terminal.rows)
+      } catch { /* container may not be visible yet */ }
     })
 
     terminalRef.current = terminal
@@ -77,7 +80,7 @@ export default function XTerminal({
         terminal.write(payload.data)
       }
     }
-    electron.onTerminalOutput(handleOutput)
+    const removeOutputListener = electron.onTerminalOutput(handleOutput)
 
     // Wire IPC closed → show disconnect
     const handleClosed = (payload) => {
@@ -87,7 +90,7 @@ export default function XTerminal({
         if (onDisconnect) onDisconnect(payload.reason)
       }
     }
-    electron.onTerminalClosed(handleClosed)
+    const removeClosedListener = electron.onTerminalClosed(handleClosed)
 
     // Wire IPC error → show in terminal
     const handleError = (payload) => {
@@ -95,12 +98,15 @@ export default function XTerminal({
         terminal.write('\r\n\x1b[31m[Error: ' + payload.error + ']\x1b[0m\r\n')
       }
     }
-    electron.onTerminalError(handleError)
+    const removeErrorListener = electron.onTerminalError(handleError)
 
     // ResizeObserver for container resize
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
-        try { fitAddon.fit() } catch { /* ignore */ }
+        try {
+          fitAddon.fit()
+          electron.sendTerminalResize(serverId, terminal.cols, terminal.rows)
+        } catch { /* ignore */ }
       })
     })
     resizeObserver.observe(containerRef.current)
@@ -125,9 +131,12 @@ export default function XTerminal({
       dataDisposable.dispose()
       resizeDisposable.dispose()
       resizeObserver.disconnect()
-      electron.removeTerminalOutputListener()
-      electron.removeTerminalClosedListener()
-      electron.removeTerminalErrorListener()
+      if (typeof removeOutputListener === 'function') removeOutputListener()
+      else electron.removeTerminalOutputListener()
+      if (typeof removeClosedListener === 'function') removeClosedListener()
+      else electron.removeTerminalClosedListener()
+      if (typeof removeErrorListener === 'function') removeErrorListener()
+      else electron.removeTerminalErrorListener()
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
@@ -135,6 +144,17 @@ export default function XTerminal({
       initializedRef.current = false
     }
   }, [serverId])
+
+  useEffect(() => {
+    if (!terminalAction || !terminalRef.current) return
+    executeAction(terminalAction.type, terminalRef.current, searchAddonRef.current)
+  }, [terminalAction])
+
+  useEffect(() => {
+    if (!searchRequest?.query || !searchAddonRef.current) return
+    if (searchRequest.direction === 'previous') searchAddonRef.current.findPrevious(searchRequest.query)
+    else searchAddonRef.current.findNext(searchRequest.query)
+  }, [searchRequest])
 
   // Apply theme changes
   useEffect(() => {

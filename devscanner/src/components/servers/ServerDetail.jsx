@@ -24,6 +24,8 @@ export default function ServerDetail({
   const [isFullscreen, setIsFullscreen] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [settingsSubTab, setSettingsSubTab] = useState('keys')
+  const [terminalAction, setTerminalAction] = useState(null)
+  const [searchRequest, setSearchRequest] = useState(null)
   const terminalInitRef = useRef(false)
 
   // Open terminal session when terminal tab is selected
@@ -74,6 +76,15 @@ export default function ServerDetail({
   const handleDisconnect = useCallback((reason) => {
     setTerminalConnected(false)
   }, [])
+
+  const handleTerminalAction = useCallback((type) => {
+    setTerminalAction({ type, id: Date.now() })
+  }, [])
+
+  const handleTerminalSearch = useCallback((query, direction) => {
+    setSearchRequest({ query, direction, id: Date.now() })
+  }, [])
+
   return (
     <div className="port-scanner">
       <div className="port-scanner-toolbar">
@@ -147,7 +158,7 @@ export default function ServerDetail({
       ) : serverSubTab === 'ports' ? (
         <ServerPorts ports={disc?.ports || []} />
       ) : serverSubTab === 'terminal' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div className={`server-terminal-shell${isFullscreen ? ' fullscreen' : ' compact'}`}>
           <TerminalToolbar
             serverName={server.name}
             connected={terminalConnected}
@@ -157,14 +168,16 @@ export default function ServerDetail({
             onToggleHistory={() => setShowHistory(h => !h)}
             isFullscreen={isFullscreen}
             showHistory={showHistory}
+            onAction={handleTerminalAction}
+            onSearch={handleTerminalSearch}
           />
           {terminalLoading ? (
-            <div className="empty-state" style={{ flex: 1 }}>
+            <div className="empty-state server-terminal-state">
               <div className="spinner" />
               <div className="empty-state-text">Connecting to terminal...</div>
             </div>
           ) : terminalError ? (
-            <div className="empty-state" style={{ flex: 1 }}>
+            <div className="empty-state server-terminal-state">
               <WifiOff size={48} className="empty-state-icon" />
               <div className="empty-state-text">{terminalError}</div>
               <button className="btn btn-primary" onClick={handleReconnect}>
@@ -172,7 +185,7 @@ export default function ServerDetail({
               </button>
             </div>
           ) : terminalConnected ? (
-            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            <div className="server-terminal-main">
               <XTerminal
                 serverId={server.id}
                 theme={terminalHook?.activeTheme}
@@ -182,7 +195,8 @@ export default function ServerDetail({
                 cursorBlink={terminalHook?.terminalSettings?.cursorBlink}
                 cursorStyle={terminalHook?.terminalSettings?.cursorStyle}
                 onDisconnect={handleDisconnect}
-                onReconnect={handleReconnect}
+                terminalAction={terminalAction}
+                searchRequest={searchRequest}
               />
               <CommandHistory
                 serverId={server.id}

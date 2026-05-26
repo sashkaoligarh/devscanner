@@ -3,7 +3,7 @@ import {
   Play, Square, ExternalLink, Terminal,
   GitBranch, FileCode, Star, Database, Copy,
   ArrowUp, ArrowDown, GitPullRequest, Loader, CheckCircle, XCircle, Clock,
-  FileText, Container, RefreshCw
+  FileText, Container, RefreshCw, Upload
 } from 'lucide-react'
 import { LANGUAGE_COLORS, FRAMEWORK_COLORS, makeLogKey, isWslPath } from '../constants'
 
@@ -45,7 +45,7 @@ function getDbConnectionString(service) {
 function ProjectCard({
   project, instances, onLaunch, onStop, onOpenBrowser, onViewTab, openTabs,
   isFavorite, onToggleFavorite, health, gitInfo, onGitFetch, onGitPull, hostIp,
-  onEnvEdit, onDockerServices,
+  onEnvEdit, onDockerServices, onDeploySetup,
   isDragOver, onDragStart, onDragOver, onDrop, onDragEnd
 }) {
   const instanceEntries = instances ? Object.entries(instances) : []
@@ -230,6 +230,11 @@ function ProjectCard({
         <button className="btn btn-sm" onClick={() => onDockerServices(project)}>
           <Container size={12} /> Services
         </button>
+        {onDeploySetup && (
+          <button className="btn btn-sm" onClick={() => onDeploySetup(project)}>
+            <Upload size={12} /> Deploy
+          </button>
+        )}
         <button className="btn btn-primary" onClick={onLaunch}>
           <Play size={12} /> Launch
         </button>

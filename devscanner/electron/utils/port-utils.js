@@ -68,7 +68,10 @@ function parseNetstatOutput(stdout) {
     if (!isNaN(pid)) {
       try {
         const tasklist = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, {
-          encoding: 'utf-8', timeout: 3000
+          encoding: 'utf-8',
+          timeout: 3000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true
         }).trim()
         const match = tasklist.match(/"([^"]+)"/)
         if (match) processName = match[1]

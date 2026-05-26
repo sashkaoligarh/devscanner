@@ -17,7 +17,9 @@ const wslHostIpReady = isRunningInsideWsl
     exec('hostname -I', { encoding: 'utf-8', timeout: 2000 }, (err, stdout) => {
       if (!err && stdout) {
         wslHostIp = stdout.trim().split(' ')[0] || null
-        console.log('[DevScanner] Running inside WSL, host IP:', wslHostIp)
+        if (process.env.NODE_ENV !== 'test') {
+          console.log('[DevScanner] Running inside WSL, host IP:', wslHostIp)
+        }
       }
       resolve(wslHostIp)
     })

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   sshExec: vi.fn(),
   sshExecSudo: vi.fn(),
   getServerPassword: vi.fn(),
+  connectSSH: vi.fn(),
   getSFTPClient: vi.fn(),
   uploadDirectory: vi.fn(),
   generateNginxConfig: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   staticPlusProxyTemplate: vi.fn(),
   showOpenDialog: vi.fn(),
   ensureNginx: vi.fn(),
+  ensureNode: vi.fn(),
   ensurePM2: vi.fn(),
   pm2Start: vi.fn(),
 }))
@@ -35,6 +37,7 @@ Module._load = function (request, parent, isMain) {
         sshExec: mocks.sshExec,
         sshExecSudo: mocks.sshExecSudo,
         getServerPassword: mocks.getServerPassword,
+        connectSSH: mocks.connectSSH,
       }
     }
   }
@@ -62,6 +65,7 @@ Module._load = function (request, parent, isMain) {
     if (resolved.includes('electron/utils/pm2-utils')) {
       return {
         ensureNginx: mocks.ensureNginx,
+        ensureNode: mocks.ensureNode,
         ensurePM2: mocks.ensurePM2,
         pm2Start: mocks.pm2Start,
       }
@@ -96,6 +100,9 @@ describe('deploy handlers', () => {
     }
     ctx = { mainWindow: () => fakeWindow, app: {} }
     registerDeployHandlers(ipcMain, ctx)
+    mocks.ensureNginx.mockResolvedValue({ installed: true, wasInstalled: true })
+    mocks.ensureNode.mockResolvedValue({ installed: true, wasInstalled: true })
+    mocks.ensurePM2.mockResolvedValue({ installed: true, wasInstalled: true })
   })
 
   describe('select-deploy-folder', () => {

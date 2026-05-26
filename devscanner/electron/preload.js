@@ -126,6 +126,8 @@ contextBridge.exposeInMainWorld('electron', {
   // Quick deploy (Phase 5)
   selectDeployFolder: () => ipcRenderer.invoke('select-deploy-folder'),
   sshUploadFolder: (opts) => ipcRenderer.invoke('ssh-upload-folder', opts),
+  deploySetupPreview: (opts) => ipcRenderer.invoke('deploy-setup-preview', opts),
+  deploySetupRun: (opts) => ipcRenderer.invoke('deploy-setup-run', opts),
   sshQuickDeploy: (opts) => ipcRenderer.invoke('ssh-quick-deploy', opts),
   sshFullDeploy: (opts) => ipcRenderer.invoke('ssh-full-deploy', opts),
   sshRemoveProject: (opts) => ipcRenderer.invoke('ssh-remove-project', opts),
@@ -133,7 +135,11 @@ contextBridge.exposeInMainWorld('electron', {
   sshGitCloneDeploy: (opts) => ipcRenderer.invoke('ssh-git-clone-deploy', opts),
   onUploadProgress: (cb) => ipcRenderer.on('upload-progress', (_, data) => cb(data)),
   removeUploadProgressListener: () => ipcRenderer.removeAllListeners('upload-progress'),
-  onDeployLog: (cb) => ipcRenderer.on('deploy-log', (_, data) => cb(data)),
+  onDeployLog: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('deploy-log', listener)
+    return () => ipcRenderer.removeListener('deploy-log', listener)
+  },
   removeDeployLogListener: () => ipcRenderer.removeAllListeners('deploy-log'),
 
   // Terminal session channels
@@ -141,11 +147,23 @@ contextBridge.exposeInMainWorld('electron', {
   terminalClose: (opts) => ipcRenderer.invoke('terminal:close', opts),
   sendTerminalInput: (sessionId, data) => ipcRenderer.send('terminal:input', sessionId, data),
   sendTerminalResize: (sessionId, cols, rows) => ipcRenderer.send('terminal:resize', sessionId, cols, rows),
-  onTerminalOutput: (cb) => ipcRenderer.on('terminal:output', (_, data) => cb(data)),
+  onTerminalOutput: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('terminal:output', listener)
+    return () => ipcRenderer.removeListener('terminal:output', listener)
+  },
   removeTerminalOutputListener: () => ipcRenderer.removeAllListeners('terminal:output'),
-  onTerminalClosed: (cb) => ipcRenderer.on('terminal:closed', (_, data) => cb(data)),
+  onTerminalClosed: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('terminal:closed', listener)
+    return () => ipcRenderer.removeListener('terminal:closed', listener)
+  },
   removeTerminalClosedListener: () => ipcRenderer.removeAllListeners('terminal:closed'),
-  onTerminalError: (cb) => ipcRenderer.on('terminal:error', (_, data) => cb(data)),
+  onTerminalError: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('terminal:error', listener)
+    return () => ipcRenderer.removeListener('terminal:error', listener)
+  },
   removeTerminalErrorListener: () => ipcRenderer.removeAllListeners('terminal:error'),
 
   // SSH key library channels
