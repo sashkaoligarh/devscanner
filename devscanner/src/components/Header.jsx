@@ -20,6 +20,11 @@ export default function Header({
     { id: 'red', label: 'Red' },
     { id: 'pink', label: 'Pink' },
     { id: 'ash', label: 'Ash' },
+    { id: 'violet-red', label: 'Violet Red' },
+    { id: 'butter-green', label: 'Butter' },
+    { id: 'vanilla-cola', label: 'Vanilla' },
+    { id: 'aureolin-bistre', label: 'Aureolin' },
+    { id: 'lime-red', label: 'Lime Red' },
   ]
   const [theme, setTheme] = useState(() => localStorage.getItem('devscanner-theme') || 'green')
   const [wslDistros, setWslDistros] = useState(wslDistrosProp || [])
@@ -194,217 +199,235 @@ export default function Header({
 
   return (
     <header className="header">
-      <span className="header-title">DevScanner</span>
-      <nav className="nav-tabs">
-        <button
-          className={`nav-tab${activeView === 'projects' ? ' nav-tab-active' : ''}`}
-          onClick={() => setActiveView('projects')}
-        >
-          <Package size={13} />
-          Projects
-        </button>
-        <button
-          className={`nav-tab${activeView === 'ports' ? ' nav-tab-active' : ''}`}
-          onClick={() => setActiveView('ports')}
-        >
-          <Radio size={13} />
-          Ports
-          {ports.length > 0 && <span className="nav-tab-badge">{ports.length}</span>}
-        </button>
-        <button
-          className={`nav-tab${activeView === 'docker' ? ' nav-tab-active' : ''}`}
-          onClick={() => setActiveView('docker')}
-        >
-          <Container size={13} />
-          Docker
-          {dockerContainers.length > 0 && <span className="nav-tab-badge">{dockerContainers.length}</span>}
-        </button>
-        <button
-          className={`nav-tab${activeView === 'servers' ? ' nav-tab-active' : ''}`}
-          onClick={() => setActiveView('servers')}
-        >
-          <Server size={13} />
-          Servers
-          {remoteServers.length > 0 && <span className="nav-tab-badge">{remoteServers.length}</span>}
-        </button>
-      </nav>
-      {folderPath && activeView === 'projects' && <span className="header-path" title={folderPath}>{folderPath}</span>}
-      <div className="header-actions">
-        {activeView === 'projects' && projects.length > 0 && (
-          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-            <Search size={14} style={{ position: 'absolute', left: 8, color: 'var(--color-text-dim)' }} />
-            <input
-              className="search-input"
-              style={{ paddingLeft: '2rem' }}
-              type="text"
-              placeholder="Search projects..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+      <div className="header-row header-row-main">
+        <div className="header-brand-nav">
+          <span className="header-title">DevScanner</span>
+          <nav className="nav-tabs">
+            <button
+              className={`nav-tab${activeView === 'projects' ? ' nav-tab-active' : ''}`}
+              onClick={() => setActiveView('projects')}
+            >
+              <Package size={13} />
+              Projects
+            </button>
+            <button
+              className={`nav-tab${activeView === 'ports' ? ' nav-tab-active' : ''}`}
+              onClick={() => setActiveView('ports')}
+            >
+              <Radio size={13} />
+              Ports
+              {ports.length > 0 && <span className="nav-tab-badge">{ports.length}</span>}
+            </button>
+            <button
+              className={`nav-tab${activeView === 'docker' ? ' nav-tab-active' : ''}`}
+              onClick={() => setActiveView('docker')}
+            >
+              <Container size={13} />
+              Docker
+              {dockerContainers.length > 0 && <span className="nav-tab-badge">{dockerContainers.length}</span>}
+            </button>
+            <button
+              className={`nav-tab${activeView === 'servers' ? ' nav-tab-active' : ''}`}
+              onClick={() => setActiveView('servers')}
+            >
+              <Server size={13} />
+              Servers
+              {remoteServers.length > 0 && <span className="nav-tab-badge">{remoteServers.length}</span>}
+            </button>
+          </nav>
+        </div>
+
+        <div className="header-top-actions">
+          <div className="theme-select-wrapper">
+            <Palette size={14} className="theme-select-icon" />
+            <CustomSelect
+              className="custom-select-sm"
+              value={theme}
+              onChange={handleThemeChange}
+              options={THEMES.map(t => ({ value: t.id, label: t.label }))}
+              style={{ minWidth: '118px' }}
             />
           </div>
-        )}
-        {activeView === 'projects' && (
-          <>
-            {hostIp && (
-              <div className="wsl-net-wrapper" style={{ position: 'relative' }}>
-                <button
-                  className={`btn btn-wsl${wslNetInfo?.forwarding ? ' btn-wsl-ok' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); setWslNetOpen(prev => !prev) }}
-                  title={`WSL IP: ${hostIp}`}
-                >
-                  <Globe size={14} />
-                  {hostIp}
+          <WindowControls isMaximized={isMaximized} />
+        </div>
+      </div>
+
+      <div className="header-row header-row-tools">
+        <div className="header-context">
+          {folderPath && activeView === 'projects' ? (
+            <span className="header-path" title={folderPath}>{folderPath}</span>
+          ) : (
+            <span className="header-path-placeholder">
+              {activeView === 'projects' ? 'No folder selected' : `${activeView.charAt(0).toUpperCase()}${activeView.slice(1)} view`}
+            </span>
+          )}
+        </div>
+
+        <div className="header-actions">
+          {activeView === 'projects' && projects.length > 0 && (
+            <div className="header-search">
+              <Search size={14} className="header-search-icon" />
+              <input
+                className="search-input"
+                type="text"
+                placeholder="Search projects..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          )}
+          {activeView === 'projects' && (
+            <>
+              {hostIp && (
+                <div className="wsl-net-wrapper" style={{ position: 'relative' }}>
+                  <button
+                    className={`btn btn-wsl${wslNetInfo?.forwarding ? ' btn-wsl-ok' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setWslNetOpen(prev => !prev) }}
+                    title={`WSL IP: ${hostIp}`}
+                  >
+                    <Globe size={14} />
+                    {hostIp}
+                  </button>
+                  {wslNetOpen && (
+                    <div className="wsl-net-popover" onClick={(e) => e.stopPropagation()}>
+                      <div className="wsl-net-title">WSL Network</div>
+                      <div className="wsl-net-row">
+                        <span className="wsl-net-label">IP address</span>
+                        <code className="wsl-net-val">{hostIp}</code>
+                      </div>
+                      <div className="wsl-net-row">
+                        <span className="wsl-net-label">localhost forwarding</span>
+                        {wslNetInfo?.forwarding
+                          ? <span className="wsl-net-status ok">enabled</span>
+                          : <span className="wsl-net-status off">{wslNetInfo?.forwarding === false ? 'disabled' : 'not configured'}</span>
+                        }
+                      </div>
+                      {!wslNetInfo?.forwarding && wslNetInfo?.available && !wslNetFixed && (
+                        <button
+                          className="btn btn-primary wsl-net-fix-btn"
+                          onClick={handleFixWslLocalhost}
+                          disabled={wslNetFixing}
+                        >
+                          {wslNetFixing ? 'Applying...' : 'Enable localhost forwarding'}
+                        </button>
+                      )}
+                      {(wslNetFixed || wslNetInfo?.forwarding) && (
+                        <div className="wsl-net-hint">
+                          Run <code>wsl --shutdown</code> in PowerShell, then restart DevScanner to use <code>localhost</code>.
+                        </div>
+                      )}
+                      {!wslNetInfo?.available && (
+                        <div className="wsl-net-hint">
+                          Add <code>localhostForwarding=true</code> under <code>[wsl2]</code> in <code>%USERPROFILE%\.wslconfig</code>.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="folder-picker-wrapper" style={{ position: 'relative' }}>
+                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); openFolderPicker() }}>
+                  <FolderOpen size={14} />
+                  Choose Folder
                 </button>
-                {wslNetOpen && (
-                  <div className="wsl-net-popover" onClick={(e) => e.stopPropagation()}>
-                    <div className="wsl-net-title">WSL Network</div>
-                    <div className="wsl-net-row">
-                      <span className="wsl-net-label">IP address</span>
-                      <code className="wsl-net-val">{hostIp}</code>
-                    </div>
-                    <div className="wsl-net-row">
-                      <span className="wsl-net-label">localhost forwarding</span>
-                      {wslNetInfo?.forwarding
-                        ? <span className="wsl-net-status ok">enabled</span>
-                        : <span className="wsl-net-status off">{wslNetInfo?.forwarding === false ? 'disabled' : 'not configured'}</span>
-                      }
-                    </div>
-                    {!wslNetInfo?.forwarding && wslNetInfo?.available && !wslNetFixed && (
-                      <button
-                        className="btn btn-primary wsl-net-fix-btn"
-                        onClick={handleFixWslLocalhost}
-                        disabled={wslNetFixing}
-                      >
-                        {wslNetFixing ? 'Applying...' : 'Enable localhost forwarding'}
-                      </button>
+
+                {folderPickerOpen && (
+                  <div className="folder-picker-popover" onClick={(e) => e.stopPropagation()}>
+                    {folderPickerStep === 'source' && (
+                      <>
+                        <div className="folder-picker-title">Choose source</div>
+                        <button className="folder-picker-option" onClick={handlePickWindowsFolder}>
+                          <FolderOpen size={14} />
+                          Windows
+                        </button>
+                        <button className="folder-picker-option" onClick={handlePickWslSource}>
+                          <Terminal size={14} />
+                          WSL
+                        </button>
+                      </>
                     )}
-                    {(wslNetFixed || wslNetInfo?.forwarding) && (
-                      <div className="wsl-net-hint">
-                        Run <code>wsl --shutdown</code> in PowerShell, then restart DevScanner to use <code>localhost</code>.
-                      </div>
+
+                    {folderPickerStep === 'wsl-distro' && (
+                      <>
+                        <div className="folder-picker-toolbar">
+                          <button className="folder-picker-back" onClick={() => { setFolderPickerStep('source'); setWslPickerError(null) }}>
+                            Back
+                          </button>
+                          <div className="folder-picker-title">Select WSL distro</div>
+                        </div>
+
+                        {wslPickerLoadingDistros ? (
+                          <div className="folder-picker-hint">Loading WSL distributions...</div>
+                        ) : wslDistros.length > 0 ? (
+                          <div className="folder-picker-list">
+                            {wslDistros.map(distro => (
+                              <button
+                                key={distro}
+                                className="folder-picker-list-item"
+                                onClick={() => handlePickWslDistro(distro)}
+                              >
+                                {distro}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="folder-picker-hint">No WSL distributions found</div>
+                        )}
+                      </>
                     )}
-                    {!wslNetInfo?.available && (
-                      <div className="wsl-net-hint">
-                        Add <code>localhostForwarding=true</code> under <code>[wsl2]</code> in <code>%USERPROFILE%\.wslconfig</code>.
-                      </div>
+
+                    {folderPickerStep === 'wsl-browser' && (
+                      <>
+                        <div className="folder-picker-toolbar">
+                          <button className="folder-picker-back" onClick={() => { setFolderPickerStep('wsl-distro'); setWslPickerError(null) }}>
+                            Back
+                          </button>
+                          <div className="folder-picker-title">{wslPickerDistro}</div>
+                        </div>
+
+                        <div className="folder-picker-path" title={wslPickerPath}>{wslPickerPath}</div>
+
+                        <div className="folder-picker-actions-row">
+                          <button className="btn btn-sm" onClick={handleWslParentOpen} disabled={!wslPickerParentPath || wslPickerLoadingDirs}>
+                            Up
+                          </button>
+                          <button className="btn btn-primary btn-sm" onClick={handleSelectWslCurrentFolder} disabled={wslPickerResolving || wslPickerLoadingDirs}>
+                            {wslPickerResolving ? 'Selecting...' : 'Select this folder'}
+                          </button>
+                        </div>
+
+                        {wslPickerLoadingDirs ? (
+                          <div className="folder-picker-hint">Loading folders...</div>
+                        ) : (
+                          <div className="folder-picker-list">
+                            {wslPickerDirs.length > 0 ? (
+                              wslPickerDirs.map(dir => (
+                                <button
+                                  key={dir.linuxPath}
+                                  className="folder-picker-list-item"
+                                  onClick={() => handleWslDirOpen(dir.linuxPath)}
+                                >
+                                  {dir.name}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="folder-picker-hint">No subfolders</div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {wslPickerError && (
+                      <div className="folder-picker-error">{wslPickerError}</div>
                     )}
                   </div>
                 )}
               </div>
-            )}
-            <div className="folder-picker-wrapper" style={{ position: 'relative' }}>
-              <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); openFolderPicker() }}>
-                <FolderOpen size={14} />
-                Choose Folder
-              </button>
-
-              {folderPickerOpen && (
-                <div className="folder-picker-popover" onClick={(e) => e.stopPropagation()}>
-                  {folderPickerStep === 'source' && (
-                    <>
-                      <div className="folder-picker-title">Choose source</div>
-                      <button className="folder-picker-option" onClick={handlePickWindowsFolder}>
-                        <FolderOpen size={14} />
-                        Windows
-                      </button>
-                      <button className="folder-picker-option" onClick={handlePickWslSource}>
-                        <Terminal size={14} />
-                        WSL
-                      </button>
-                    </>
-                  )}
-
-                  {folderPickerStep === 'wsl-distro' && (
-                    <>
-                      <div className="folder-picker-toolbar">
-                        <button className="folder-picker-back" onClick={() => { setFolderPickerStep('source'); setWslPickerError(null) }}>
-                          Back
-                        </button>
-                        <div className="folder-picker-title">Select WSL distro</div>
-                      </div>
-
-                      {wslPickerLoadingDistros ? (
-                        <div className="folder-picker-hint">Loading WSL distributions...</div>
-                      ) : wslDistros.length > 0 ? (
-                        <div className="folder-picker-list">
-                          {wslDistros.map(distro => (
-                            <button
-                              key={distro}
-                              className="folder-picker-list-item"
-                              onClick={() => handlePickWslDistro(distro)}
-                            >
-                              {distro}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="folder-picker-hint">No WSL distributions found</div>
-                      )}
-                    </>
-                  )}
-
-                  {folderPickerStep === 'wsl-browser' && (
-                    <>
-                      <div className="folder-picker-toolbar">
-                        <button className="folder-picker-back" onClick={() => { setFolderPickerStep('wsl-distro'); setWslPickerError(null) }}>
-                          Back
-                        </button>
-                        <div className="folder-picker-title">{wslPickerDistro}</div>
-                      </div>
-
-                      <div className="folder-picker-path" title={wslPickerPath}>{wslPickerPath}</div>
-
-                      <div className="folder-picker-actions-row">
-                        <button className="btn btn-sm" onClick={handleWslParentOpen} disabled={!wslPickerParentPath || wslPickerLoadingDirs}>
-                          Up
-                        </button>
-                        <button className="btn btn-primary btn-sm" onClick={handleSelectWslCurrentFolder} disabled={wslPickerResolving || wslPickerLoadingDirs}>
-                          {wslPickerResolving ? 'Selecting...' : 'Select this folder'}
-                        </button>
-                      </div>
-
-                      {wslPickerLoadingDirs ? (
-                        <div className="folder-picker-hint">Loading folders...</div>
-                      ) : (
-                        <div className="folder-picker-list">
-                          {wslPickerDirs.length > 0 ? (
-                            wslPickerDirs.map(dir => (
-                              <button
-                                key={dir.linuxPath}
-                                className="folder-picker-list-item"
-                                onClick={() => handleWslDirOpen(dir.linuxPath)}
-                              >
-                                {dir.name}
-                              </button>
-                            ))
-                          ) : (
-                            <div className="folder-picker-hint">No subfolders</div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {wslPickerError && (
-                    <div className="folder-picker-error">{wslPickerError}</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
-      <div className="theme-select-wrapper">
-        <Palette size={14} className="theme-select-icon" />
-        <CustomSelect
-          className="custom-select-sm"
-          value={theme}
-          onChange={handleThemeChange}
-          options={THEMES.map(t => ({ value: t.id, label: t.label }))}
-          style={{ minWidth: '100px' }}
-        />
-      </div>
-      <WindowControls isMaximized={isMaximized} />
     </header>
   )
 }

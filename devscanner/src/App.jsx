@@ -31,7 +31,7 @@ export default function App() {
   const [navTab, setNavTab] = useState('projects')
   const [isMaximized, setIsMaximized] = useState(false)
   const [hostIp, setHostIp] = useState(null)
-  const [wslDistros, setWslDistros] = useState([])
+  const [wslDistros] = useState([])
   const [envModal, setEnvModal] = useState(null)
 
   // Update state
@@ -98,6 +98,8 @@ export default function App() {
   // Initialization: window state, host info, settings, update listeners
   useEffect(() => {
     if (!electron.available) return
+    let startupScanTimer = null
+    electron.logDiagnostic('startup:init')
 
     // Window maximize
     electron.windowIsMaximized().then(setIsMaximized)
@@ -106,11 +108,7 @@ export default function App() {
     // Host info (WSL IP, etc.)
     electron.getHostInfo().then(info => {
       if (info.wslIp) setHostIp(info.wslIp)
-    })
-
-    // WSL distros
-    electron.getWslDistros().then(distros => {
-      if (distros.length > 0) setWslDistros(distros)
+      electron.logDiagnostic('startup:host-info-loaded', { isWsl: info.isWsl, hasWslIp: !!info.wslIp })
     })
 
     // Update listeners
@@ -120,6 +118,11 @@ export default function App() {
 
     // Load saved settings
     electron.getSettings().then(settings => {
+      electron.logDiagnostic('startup:settings-loaded', {
+        hasLastFolder: !!settings.lastFolder,
+        favorites: settings.favorites?.length || 0,
+        remoteServers: settings.remoteServers?.length || 0
+      })
       if (settings.launchConfigs) setLaunchConfigs(settings.launchConfigs)
       if (settings.favorites) setFavorites(new Set(settings.favorites))
       if (settings.favoriteOrder) setFavoriteOrder(settings.favoriteOrder)
@@ -128,18 +131,31 @@ export default function App() {
       if (settings.lastFolder) {
         setFolderPath(settings.lastFolder)
         setScanning(true)
-        electron.scanFolder(settings.lastFolder).then(result => {
-          if (result.success) {
-            setProjects(result.data)
-          } else {
-            setScanError(result.error)
-          }
-          setScanning(false)
-        })
+        startupScanTimer = setTimeout(() => {
+          electron.logDiagnostic('startup:initial-scan:start', { folderPath: settings.lastFolder })
+          electron.scanFolder(settings.lastFolder).then(result => {
+            electron.logDiagnostic('startup:initial-scan:end', {
+              success: result.success,
+              projects: result.data?.length || 0,
+              error: result.error
+            })
+            if (result.success) {
+              setProjects(result.data)
+            } else {
+              setScanError(result.error)
+            }
+            setScanning(false)
+          }).catch(err => {
+            electron.logDiagnostic('startup:initial-scan:error', { error: err.message })
+            setScanError(err.message)
+            setScanning(false)
+          })
+        }, 300)
       }
     })
 
     return () => {
+      if (startupScanTimer) clearTimeout(startupScanTimer)
       electron.removeUpdateListeners()
       electron.removeWindowListeners()
     }

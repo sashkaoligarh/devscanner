@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import electron from '../electronApi'
 
 export default function useProjects() {
@@ -111,28 +111,6 @@ export default function useProjects() {
       return info
     })
   }, [])
-
-  // Load git info for all projects when project list changes (batched to avoid N re-renders)
-  useEffect(() => {
-    if (!electron.available || projects.length === 0) return
-    const gitProjects = projects.filter(p => p.git)
-    if (gitProjects.length === 0) return
-    Promise.allSettled(
-      gitProjects.map(p =>
-        electron.gitInfo({ projectPath: p.path }).then(info => ({ path: p.path, info }))
-      )
-    ).then(results => {
-      const batch = {}
-      for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.info) {
-          batch[r.value.path] = r.value.info
-        }
-      }
-      if (Object.keys(batch).length > 0) {
-        setGitInfoCache(prev => ({ ...prev, ...batch }))
-      }
-    })
-  }, [projects])
 
   return {
     projects,

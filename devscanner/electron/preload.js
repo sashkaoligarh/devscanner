@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electron', {
   killPortProcess: (opts) => ipcRenderer.invoke('kill-port-process', opts),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getDiagnostics: () => ipcRenderer.invoke('get-diagnostics'),
+  logDiagnostic: (message, data) => ipcRenderer.invoke('diagnostic-log', message, data),
   getHostInfo: () => ipcRenderer.invoke('get-host-info'),
   checkWslLocalhost: () => ipcRenderer.invoke('check-wsl-localhost'),
   fixWslLocalhost: () => ipcRenderer.invoke('fix-wsl-localhost'),

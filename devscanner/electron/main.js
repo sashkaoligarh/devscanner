@@ -8,6 +8,10 @@ const { runningProcesses } = require('./utils/process')
 const { sshConnections } = require('./utils/ssh-pool')
 const { dockerHealthPollingTimers } = require('./utils/docker-services')
 const { terminalSessions } = require('./utils/terminal-sessions')
+const { getLogPath, log, logError, startTimer } = require('./utils/app-log')
+
+process.on('uncaughtException', err => logError('process:uncaughtException', err))
+process.on('unhandledRejection', err => logError('process:unhandledRejection', err))
 
 // --- Handler registrations ---
 const { registerWindowHandlers } = require('./handlers/window')
@@ -38,11 +42,12 @@ Menu.setApplicationMenu(null)
 // --- Window creation ---
 
 function createWindow() {
+  const endCreateWindow = startTimer('window:create', { isPackaged: app.isPackaged })
   console.log('Creating BrowserWindow...')
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
+    width: 1380,
+    height: 860,
+    minWidth: 980,
     minHeight: 500,
     frame: false,
     backgroundColor: '#0a0a0a',
@@ -66,14 +71,25 @@ function createWindow() {
   const devPort = process.env.PORT || '5173'
   if (isDev) {
     console.log(`Dev mode: loading http://localhost:${devPort}`)
+    log('window:load-url', { url: `http://localhost:${devPort}` })
     mainWindow.loadURL(`http://localhost:${devPort}`)
     mainWindow.webContents.openDevTools()
   } else {
+    log('window:load-file', { file: path.join(__dirname, '../dist/index.html') })
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    log('window:did-finish-load')
+  })
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    log('window:did-fail-load', { errorCode, errorDescription, validatedURL })
+  })
+
   mainWindow.once('ready-to-show', () => {
     console.log('Window ready-to-show, focusing...')
+    endCreateWindow()
     mainWindow.show()
     mainWindow.focus()
   })
@@ -82,6 +98,11 @@ function createWindow() {
 // --- App Lifecycle ---
 
 app.whenReady().then(() => {
+  const endReady = startTimer('app:ready', {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    logPath: getLogPath()
+  })
   createWindow()
 
   const ctx = { mainWindow: () => getMainWindow(), app }
@@ -105,8 +126,10 @@ app.whenReady().then(() => {
   registerSshTerminalHandlers(ipcMain, ctx)
   registerTerminalSettingsHandlers(ipcMain)
   registerCommandHistoryHandlers(ipcMain)
+  log('app:handlers-registered')
 
   setupAutoUpdater(ctx)
+  endReady()
 })
 
 app.on('window-all-closed', () => {
@@ -118,6 +141,7 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
+  log('app:before-quit')
   // Kill all running project processes
   for (const [, instances] of runningProcesses) {
     for (const [, entry] of instances) {

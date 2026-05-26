@@ -3,6 +3,7 @@ const { execSync } = require('child_process')
 const { dialog } = require('electron')
 const { isRunningInsideWsl } = require('../globals')
 const { saveSettings } = require('../utils/settings-store')
+const { logError, startTimer } = require('../utils/app-log')
 
 function normalizeLinuxPath(inputPath) {
   if (typeof inputPath !== 'string' || inputPath.trim() === '') return '/'
@@ -62,15 +63,22 @@ function getWslConfigPath() {
 
 function registerWslHandlers(ipcMain, ctx) {
   ipcMain.handle('check-wsl-localhost', async () => {
-    if (!isRunningInsideWsl) return { available: false }
+    const end = startTimer('ipc:check-wsl-localhost')
+    if (!isRunningInsideWsl) {
+      end({ available: false, skipped: true })
+      return { available: false }
+    }
     try {
       const wslconfigPath = getWslConfigPath()
       let content = ''
       try { content = fs.readFileSync(wslconfigPath, 'utf-8') } catch { /* file doesn't exist */ }
       const match = content.match(/^\s*localhostForwarding\s*=\s*(\w+)/im)
       const forwarding = match ? match[1].toLowerCase() === 'true' : null
+      end({ available: true, forwarding })
       return { available: true, forwarding, wslconfigPath }
     } catch (err) {
+      end({ available: false, error: err.message })
+      logError('ipc:check-wsl-localhost:error', err)
       return { available: false, error: err.message }
     }
   })
@@ -100,11 +108,19 @@ function registerWslHandlers(ipcMain, ctx) {
   })
 
   ipcMain.handle('get-wsl-distros', async () => {
-    if (process.platform !== 'win32') return []
+    const end = startTimer('ipc:get-wsl-distros', { platform: process.platform })
+    if (process.platform !== 'win32') {
+      end({ count: 0, skipped: true })
+      return []
+    }
     try {
       const output = execSync('wsl.exe -l -q', { encoding: 'utf-8', timeout: 5000 })
-      return output.replace(/\0/g, '').split('\n').map(l => l.trim()).filter(Boolean)
-    } catch {
+      const distros = output.replace(/\0/g, '').split('\n').map(l => l.trim()).filter(Boolean)
+      end({ count: distros.length })
+      return distros
+    } catch (err) {
+      end({ count: 0, error: err.message })
+      logError('ipc:get-wsl-distros:error', err)
       return []
     }
   })
@@ -130,12 +146,15 @@ function registerWslHandlers(ipcMain, ctx) {
   })
 
   ipcMain.handle('list-wsl-directories', async (event, payload = {}) => {
+    const end = startTimer('ipc:list-wsl-directories', { distro: payload.distro, path: payload.path })
     if (process.platform !== 'win32') {
+      end({ success: false, error: 'WSL browsing is available only on Windows' })
       return { success: false, error: 'WSL browsing is available only on Windows' }
     }
 
     const distro = typeof payload.distro === 'string' ? payload.distro.trim() : ''
     if (!distro) {
+      end({ success: false, error: 'WSL distro is required' })
       return { success: false, error: 'WSL distro is required' }
     }
 
@@ -147,11 +166,13 @@ function registerWslHandlers(ipcMain, ctx) {
       const windowsPath = linuxToWindowsWslPath(distro, linuxPath)
 
       if (!fs.existsSync(windowsPath)) {
+        end({ success: false, error: `Directory not found: ${linuxPath}` })
         return { success: false, error: `Directory not found: ${linuxPath}` }
       }
 
       const stat = fs.statSync(windowsPath)
       if (!stat.isDirectory()) {
+        end({ success: false, error: `Not a directory: ${linuxPath}` })
         return { success: false, error: `Not a directory: ${linuxPath}` }
       }
 
@@ -164,6 +185,7 @@ function registerWslHandlers(ipcMain, ctx) {
           linuxPath: joinLinuxPath(linuxPath, name)
         }))
 
+      end({ success: true, directories: directories.length, linuxPath })
       return {
         success: true,
         data: {
@@ -175,6 +197,8 @@ function registerWslHandlers(ipcMain, ctx) {
         }
       }
     } catch (err) {
+      end({ success: false, error: err.message })
+      logError('ipc:list-wsl-directories:error', err, { distro, path: payload.path })
       return { success: false, error: err.message }
     }
   })

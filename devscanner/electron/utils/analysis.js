@@ -2,7 +2,6 @@ const path = require('path')
 const fs = require('fs')
 const yaml = require('js-yaml')
 const { SOURCE_EXTENSIONS, EXCLUDED_DIRS, FRAMEWORK_PORT_MAP, LANGUAGE_PORT_MAP, MANIFEST_FILES } = require('../constants')
-const { execInContext } = require('./context')
 
 function countSourceFiles(dir, depth = 0, maxDepth = 4) {
   if (depth >= maxDepth) return 0
@@ -32,19 +31,23 @@ function countSourceFiles(dir, depth = 0, maxDepth = 4) {
 
 function getGitInfo(projectPath) {
   try {
-    const gitDir = path.join(projectPath, '.git')
-    if (!fs.existsSync(gitDir)) return null
+    const gitPath = path.join(projectPath, '.git')
+    if (!fs.existsSync(gitPath)) return null
 
-    const output = execInContext(
-      'git rev-parse --abbrev-ref HEAD && git rev-list --count HEAD',
-      { cwd: projectPath, encoding: 'utf-8', timeout: 5000 }
-    ).trim()
+    const stat = fs.statSync(gitPath)
+    let gitDir = gitPath
+    if (stat.isFile()) {
+      const content = fs.readFileSync(gitPath, 'utf-8')
+      const match = content.match(/^gitdir:\s*(.+)$/im)
+      if (!match) return { branch: 'unknown', commits: 0 }
+      gitDir = path.resolve(projectPath, match[1].trim())
+    }
 
-    const lines = output.split('\n')
-    const branch = lines[0]?.trim() || 'unknown'
-    const commits = parseInt(lines[1]?.trim(), 10)
+    const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf-8').trim()
+    const branchMatch = head.match(/^ref:\s*refs\/heads\/(.+)$/)
+    const branch = branchMatch ? branchMatch[1] : (head ? head.slice(0, 7) : 'unknown')
 
-    return { branch, commits: isNaN(commits) ? 0 : commits }
+    return { branch, commits: 0 }
   } catch {
     return null
   }
