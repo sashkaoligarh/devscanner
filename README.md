@@ -48,7 +48,7 @@ cd devscanner
 npm run build
 ```
 
-Produces platform-specific installers in `devscanner/dist/`.
+Produces platform-specific installers in `devscanner/release/`. Renderer assets remain in `devscanner/dist/`.
 
 ## Releasing a new version
 

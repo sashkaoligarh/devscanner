@@ -4,6 +4,8 @@ import path from 'path'
 import Module from 'module'
 
 const mocks = vi.hoisted(() => ({
+  provisionDeploy: vi.fn(),
+  loadSettings: vi.fn(),
   getSSHClient: vi.fn(),
   sshExec: vi.fn(),
   sshExecSudo: vi.fn(),
@@ -25,9 +27,12 @@ const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (request === 'electron') {
     return {
-      dialog: { showOpenDialog: mocks.showOpenDialog }
+      dialog: { showOpenDialog: mocks.showOpenDialog },
+      safeStorage: { isEncryptionAvailable: () => false }
     }
   }
+  if (request === '../utils/deploy-provision') return { provisionDeploy: mocks.provisionDeploy }
+  if (request === '../utils/settings-store') return { loadSettings: mocks.loadSettings }
   const parentDir = parent?.filename ? path.dirname(parent.filename) : ''
   if (request === '../utils/ssh-pool' || request === './utils/ssh-pool') {
     const resolved = path.resolve(parentDir, request)
@@ -103,6 +108,28 @@ describe('deploy handlers', () => {
     mocks.ensureNginx.mockResolvedValue({ installed: true, wasInstalled: true })
     mocks.ensureNode.mockResolvedValue({ installed: true, wasInstalled: true })
     mocks.ensurePM2.mockResolvedValue({ installed: true, wasInstalled: true })
+  })
+
+  describe('deploy setup IPC', () => {
+    it('runs the project preparation and forwards progress through the existing log event', async () => {
+      const payload = { serverId: 'srv1', projectPath: '/project', mode: 'private-vpn' }
+      mocks.provisionDeploy.mockImplementation(async (input, log) => { log('Installed Compose'); return { completed: ['Compose'] } })
+      const result = await ipcMain.invoke('deploy-setup-run', payload)
+      expect(result).toEqual({ success: true, data: { completed: ['Compose'] } })
+      expect(mocks.provisionDeploy).toHaveBeenCalledWith(payload, expect.any(Function))
+      expect(ctx.mainWindow().webContents.send).toHaveBeenCalledWith('deploy-log', { serverId: 'srv1', message: 'Installed Compose' })
+    })
+    it('returns partial completion after a failed preparation', async () => {
+      const error = Object.assign(new Error('Compose validation failed'), { completed: ['Docker', 'User'] })
+      mocks.provisionDeploy.mockRejectedValue(error)
+      expect(await ipcMain.invoke('deploy-setup-run', { serverId: 'srv1' })).toEqual({ success: false, error: 'Compose validation failed', completed: ['Docker', 'User'] })
+    })
+    it('generates allowed app secrets via the bridge', async () => {
+      const result = await ipcMain.invoke('deploy-setup-generate-env', { keys: ['JWT_SECRET', 'GHCR_TOKEN'] })
+      expect(result.success).toBe(true)
+      expect(result.data.JWT_SECRET).toHaveLength(64)
+      expect(result.data.GHCR_TOKEN).toBeUndefined()
+    })
   })
 
   describe('select-deploy-folder', () => {

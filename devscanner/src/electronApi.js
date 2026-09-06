@@ -135,6 +135,8 @@ const electron = {
   // Phase 5: Quick deploy
   sshQuickDeploy: (o) => window.electron?.sshQuickDeploy?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   deploySetupPreview: (o) => window.electron?.deploySetupPreview?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  deploySetupImportEnv: (o) => window.electron?.deploySetupImportEnv?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
+  deploySetupGenerateEnv: (o) => window.electron?.deploySetupGenerateEnv?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   deploySetupRun: (o) => window.electron?.deploySetupRun?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshFullDeploy: (o) => window.electron?.sshFullDeploy?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),
   sshRemoveProject: (o) => window.electron?.sshRemoveProject?.(o) ?? Promise.resolve({ success: false, error: 'Not available' }),

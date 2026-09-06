@@ -1,18 +1,15 @@
-const fs = require('fs')
-const { execFileSync } = require('child_process')
 const { dialog, safeStorage } = require('electron')
-const { getSSHClient, sshExec, sshExecSudo, getServerPassword, connectSSH } = require('../utils/ssh-pool')
+const { loadSettings } = require('../utils/settings-store')
+const { getSSHClient, sshExec, sshExecSudo, getServerPassword } = require('../utils/ssh-pool')
 const { getSFTPClient, uploadDirectory } = require('../utils/sftp-utils')
 const { generateNginxConfig, staticSiteTemplate, staticPlusProxyTemplate } = require('../utils/nginx-utils')
 const { ensureNginx, ensureNode, ensurePM2, pm2Start } = require('../utils/pm2-utils')
-const { loadSettings, saveSettings } = require('../utils/settings-store')
 const {
   detectDeploySetup,
-  buildInventory,
-  buildSecretBundle,
-  generateVaultPassword,
-  sanitizeLinuxUser
+  importProjectEnv,
+  generateEnvSecrets
 } = require('../utils/deploy-setup')
+const { provisionDeploy } = require('../utils/deploy-provision')
 
 function sendProgress(ctx, serverId, progress) {
   const mainWindow = ctx.mainWindow()
@@ -28,243 +25,35 @@ function sendLog(ctx, serverId, message) {
   }
 }
 
-function shellQuote(value) {
-  return "'" + String(value).replace(/'/g, "'\\''") + "'"
-}
-
-function sanitizeRemotePath(value, fallback) {
-  const clean = String(value || '').trim().replace(/[`$\\]/g, '')
-  if (!clean.startsWith('/') || clean.includes('..')) return fallback
-  return clean.replace(/\/+$/g, '') || fallback
-}
-
-async function getClientForSetup(serverId) {
-  const existing = getSSHClient(serverId)
-  if (existing) return existing
-  const settings = loadSettings()
-  const server = (settings.remoteServers || []).find(s => s.id === serverId)
-  if (!server) throw new Error('Server not found')
-  return connectSSH(server)
-}
-
-async function ensureDeployUser(client, password, deployUser, sudoAccess) {
-  const user = sanitizeLinuxUser(deployUser, 'deploy')
-  const sudoersPath = `/etc/sudoers.d/devscanner-${user}`
-  const commands = [
-    `id -u ${user} >/dev/null 2>&1 || useradd -m -s /bin/bash ${user}`,
-    `mkdir -p /home/${user}/.ssh`,
-    `chown -R ${user}:${user} /home/${user}/.ssh`,
-    `chmod 700 /home/${user}/.ssh`,
-    `getent group docker >/dev/null 2>&1 && usermod -aG docker ${user} || true`
-  ]
-  if (sudoAccess) {
-    commands.push(`printf ${shellQuote(`${user} ALL=(ALL) NOPASSWD:ALL\n`)} > ${sudoersPath}`)
-    commands.push(`chmod 440 ${sudoersPath}`)
-  }
-  await sshExecSudo(client, commands.join(' && '), password, 30000)
-  return user
-}
-
-async function createDeployKey(client, password, deployUser, projectSlug) {
-  const comment = `devscanner-${projectSlug}-${Date.now()}`
-  const command = [
-    `tmp=$(mktemp -u /tmp/devscanner-${deployUser}-XXXXXX)`,
-    `ssh-keygen -t ed25519 -N '' -C ${shellQuote(comment)} -f "$tmp" >/dev/null`,
-    `cat "$tmp.pub" >> /home/${deployUser}/.ssh/authorized_keys`,
-    `chown -R ${deployUser}:${deployUser} /home/${deployUser}/.ssh`,
-    `chmod 700 /home/${deployUser}/.ssh`,
-    `chmod 600 /home/${deployUser}/.ssh/authorized_keys`,
-    `printf '__PRIVATE_KEY_START__\\n'`,
-    `cat "$tmp"`,
-    `printf '\\n__PRIVATE_KEY_END__\\n__PUBLIC_KEY_START__\\n'`,
-    `cat "$tmp.pub"`,
-    `printf '\\n__PUBLIC_KEY_END__\\n'`,
-    `rm -f "$tmp" "$tmp.pub"`
-  ].join(' && ')
-
-  const result = await sshExecSudo(client, command, password, 30000)
-  const output = result.stdout || ''
-  const privateKey = output.match(/__PRIVATE_KEY_START__\n([\s\S]*?)\n__PRIVATE_KEY_END__/)?.[1]?.trim()
-  const publicKey = output.match(/__PUBLIC_KEY_START__\n([\s\S]*?)\n__PUBLIC_KEY_END__/)?.[1]?.trim()
-  if (!privateKey || !publicKey) throw new Error('Failed to generate deploy key')
-  return { privateKey, publicKey }
-}
-
-function getKnownHosts(host, port) {
-  try {
-    return execFileSync('ssh-keyscan', ['-p', String(port || 22), String(host)], {
-      encoding: 'utf-8',
-      timeout: 7000,
-      stdio: ['ignore', 'pipe', 'ignore']
-    }).trim()
-  } catch {
-    return `# Run from a machine that can reach the server:\n# ssh-keyscan -p ${port || 22} ${host}`
-  }
-}
-
-async function installPrivateDeployAssets({ client, password, serverId, ctx, setup, remoteBase, deployUser, installCron }) {
-  if (!setup.deployDir || !fs.existsSync(setup.deployDir)) {
-    return { installed: false, logs: ['No deploy/ directory detected.'] }
-  }
-
-  const tmpDir = `/tmp/devscanner-deploy-${setup.slug}-${Date.now()}`
-  const logs = []
-  const log = (message) => {
-    logs.push(message)
-    sendLog(ctx, serverId, message)
-  }
-
-  log(`> Uploading deploy assets to ${tmpDir}...`)
-  await sshExec(client, `rm -rf ${tmpDir} && mkdir -p ${tmpDir}`, 10000)
-  const sftp = await getSFTPClient(client)
-  await uploadDirectory(sftp, setup.deployDir, tmpDir, progress => sendProgress(ctx, serverId, progress))
-
-  const script = setup.autodeployScript
-  const remote = sanitizeRemotePath(remoteBase, setup.remoteBase)
-  if (script) {
-    log(`> Installing autodeploy layout to ${remote}...`)
-    const commands = [
-      `mkdir -p ${remote}/bin ${remote}/stack ${remote}/env ${remote}/run ${remote}/nginx /etc/nginx/certs`,
-      `cp ${tmpDir}/${script} ${remote}/bin/${script}`,
-      `[ -f ${tmpDir}/stack.yml ] && cp ${tmpDir}/stack.yml ${remote}/stack/stack.yml || true`,
-      `[ -f ${tmpDir}/nginx.conf ] && cp ${tmpDir}/nginx.conf ${remote}/nginx/nginx.conf || true`,
-      `[ -f ${tmpDir}/vars.yml ] && cp ${tmpDir}/vars.yml ${remote}/vars.yml || true`,
-      `[ -f ${tmpDir}/server.env.example ] && [ ! -f ${remote}/env/server.env ] && cp ${tmpDir}/server.env.example ${remote}/env/server.env || true`,
-      `chmod 700 ${remote}/bin/${script}`,
-      `[ -f ${remote}/env/server.env ] && chmod 600 ${remote}/env/server.env || true`,
-      `chown -R ${deployUser}:${deployUser} ${remote}`,
-      `rm -rf ${tmpDir}`
-    ]
-    await sshExecSudo(client, commands.join(' && '), password, 30000)
-
-    if (installCron) {
-      log('> Installing cron entry...')
-      const cronName = `${setup.slug}-autodeploy`
-      const cronContent = `SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n\n* * * * * root ${remote}/bin/${script} >> /var/log/${cronName}.log 2>&1\n`
-      await sshExecSudo(client, [
-        `touch /var/log/${cronName}.log`,
-        `chmod 644 /var/log/${cronName}.log`,
-        `printf ${shellQuote(cronContent)} > /etc/cron.d/${cronName}`,
-        `chmod 644 /etc/cron.d/${cronName}`,
-        `systemctl enable --now cron >/dev/null 2>&1 || true`
-      ].join(' && '), password, 10000)
-    }
-
-    return { installed: true, logs, remoteDir: remote, cronInstalled: !!installCron }
-  }
-
-  log(`> Installing generic deploy directory to ${remote}/deploy...`)
-  await sshExecSudo(client, [
-    `mkdir -p ${remote}`,
-    `rm -rf ${remote}/deploy`,
-    `cp -a ${tmpDir} ${remote}/deploy`,
-    `chown -R ${deployUser}:${deployUser} ${remote}`,
-    `rm -rf ${tmpDir}`
-  ].join(' && '), password, 30000)
-  return { installed: true, logs, remoteDir: `${remote}/deploy`, cronInstalled: false }
-}
-
 function registerDeployHandlers(ipcMain, ctx) {
   ipcMain.handle('deploy-setup-preview', async (_, { projectPath }) => {
     try {
-      if (!projectPath || !fs.existsSync(projectPath)) {
-        return { success: false, error: 'Project folder not found' }
-      }
       return { success: true, data: detectDeploySetup(projectPath) }
     } catch (err) {
       return { success: false, error: err.message }
     }
   })
 
-  ipcMain.handle('deploy-setup-run', async (_, payload = {}) => {
-    const { serverId, projectPath } = payload
+  ipcMain.handle('deploy-setup-import-env', async (_, { projectPath, file }) => {
     try {
-      if (!serverId) return { success: false, error: 'Server is required' }
-      if (!projectPath || !fs.existsSync(projectPath)) return { success: false, error: 'Project folder not found' }
-
-      const settings = loadSettings()
-      const server = (settings.remoteServers || []).find(s => s.id === serverId)
-      if (!server) return { success: false, error: 'Server not found' }
-
-      const setup = detectDeploySetup(projectPath)
-      const mode = payload.mode || setup.mode
-      const deployUser = sanitizeLinuxUser(payload.deployUser || setup.deployUser, 'deploy')
-      const remoteBase = sanitizeRemotePath(payload.remoteBase || setup.remoteBase, setup.remoteBase)
-      const sudoAccess = payload.sudoAccess !== false
-      const installCron = !!payload.installCron
-
-      sendLog(ctx, serverId, `> Preparing deploy setup for ${setup.projectName}...`)
-      const client = await getClientForSetup(serverId)
-      const password = getServerPassword(serverId)
-
-      sendLog(ctx, serverId, `> Creating deploy user "${deployUser}"...`)
-      await ensureDeployUser(client, password, deployUser, sudoAccess)
-
-      sendLog(ctx, serverId, '> Generating deploy SSH key...')
-      const keyPair = await createDeployKey(client, password, deployUser, setup.slug)
-      const knownHosts = getKnownHosts(server.host, server.port || 22)
-      const inventory = buildInventory({ host: server.host, port: server.port || 22, deployUser })
-      const vaultPassword = generateVaultPassword()
-
-      let assets = { installed: false, logs: [] }
-      if (mode === 'private-vpn') {
-        assets = await installPrivateDeployAssets({
-          client,
-          password,
-          serverId,
-          ctx,
-          setup,
-          remoteBase,
-          deployUser,
-          installCron
-        })
-      }
-
-      const secrets = buildSecretBundle({
-        detectedSecrets: setup.secrets,
-        mode,
-        privateKey: keyPair.privateKey,
-        knownHosts,
-        inventory,
-        vaultPassword
-      })
-
-      const deploySetups = settings.deploySetups || []
-      const profile = {
-        id: `${setup.slug}-${serverId}`,
-        projectPath,
-        projectName: setup.projectName,
-        serverId,
-        mode,
-        deployUser,
-        remoteBase,
-        secretNames: secrets.map(s => s.name),
-        updatedAt: new Date().toISOString()
-      }
-      saveSettings({ deploySetups: [...deploySetups.filter(p => p.id !== profile.id), profile] })
-
-      sendLog(ctx, serverId, '✓ Deploy setup ready')
-      return {
-        success: true,
-        data: {
-          profile,
-          setup: { ...setup, mode },
-          publicKey: keyPair.publicKey,
-          secrets,
-          variables: setup.variables.map(name => ({ name, value: '', description: 'GitHub Actions variable detected in workflow.' })),
-          assets,
-          nextSteps: [
-            'Add the generated values to GitHub repository Secrets.',
-            'Fill manual registry/application secrets with real values.',
-            mode === 'private-vpn'
-              ? `Review ${remoteBase}/env/server.env on the server before enabling/running autodeploy.`
-              : 'Run the GitHub workflow after all secrets are configured.'
-          ]
-        }
-      }
+      return { success: true, data: importProjectEnv(projectPath, file) }
     } catch (err) {
-      if (serverId) sendLog(ctx, serverId, `✗ Deploy setup failed: ${err.message}`)
       return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('deploy-setup-generate-env', async (_, { keys }) => {
+    try { return { success: true, data: generateEnvSecrets(keys) } }
+    catch (err) { return { success: false, error: err.message } }
+  })
+
+  ipcMain.handle('deploy-setup-run', async (_, payload = {}) => {
+    try {
+      const data = await provisionDeploy(payload, message => sendLog(ctx, payload.serverId, message))
+      return { success: true, data }
+    } catch (err) {
+      if (payload.serverId) sendLog(ctx, payload.serverId, '✗ ' + err.message)
+      return { success: false, error: err.message, completed: err.completed || [] }
     }
   })
 

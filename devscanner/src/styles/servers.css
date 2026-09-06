@@ -917,3 +917,53 @@
 .deploy-setup-log {
   max-height: 180px;
 }
+
+.deploy-setup-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.deploy-env-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.deploy-env-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+}
+
+.deploy-env-list .deploy-field span {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+}
+
+.deploy-config-editor {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.deploy-detected-card summary { cursor: pointer; }
+.deploy-detected-card li + li { margin-top: 0.5rem; }
+
+@media (max-width: 640px) {
+  .deploy-env-list, .deploy-setup-grid { grid-template-columns: 1fr; }
+  .deploy-secret-row { grid-template-columns: 1fr; }
+  .deploy-secret-manual { grid-column: auto; }
+}

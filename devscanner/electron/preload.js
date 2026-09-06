@@ -127,6 +127,8 @@ contextBridge.exposeInMainWorld('electron', {
   selectDeployFolder: () => ipcRenderer.invoke('select-deploy-folder'),
   sshUploadFolder: (opts) => ipcRenderer.invoke('ssh-upload-folder', opts),
   deploySetupPreview: (opts) => ipcRenderer.invoke('deploy-setup-preview', opts),
+  deploySetupImportEnv: (opts) => ipcRenderer.invoke('deploy-setup-import-env', opts),
+  deploySetupGenerateEnv: (opts) => ipcRenderer.invoke('deploy-setup-generate-env', opts),
   deploySetupRun: (opts) => ipcRenderer.invoke('deploy-setup-run', opts),
   sshQuickDeploy: (opts) => ipcRenderer.invoke('ssh-quick-deploy', opts),
   sshFullDeploy: (opts) => ipcRenderer.invoke('ssh-full-deploy', opts),
