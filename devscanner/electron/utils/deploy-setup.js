@@ -58,9 +58,9 @@ function serializeEnv(values) {
   }).join('\n') + '\n'
 }
 function isPlaceholder(value) {
-  return /your[-_ ]|generate[_-]?me|change[_-]?me|secure_password_here|github_pat_x+|base64_encoded_|^key1,key2$|^12345$|example\.com/i.test(value || '')
+  return /your[-_ ]|generate[_-]?me|change[_-]?me|replace[_ -](?:with|key|me)(?:[_ -]|$)|secure_password_here|github_pat_x+|base64_encoded_|^key1,key2$|^12345$|example\.com/i.test(value || '')
 }
-function isSensitive(key) { return /PASSWORD|SECRET|TOKEN|(?:^|_)KEYS?$|PRIVATE|SALT|BASIC_AUTH/i.test(key) }
+function isSensitive(key) { return /PASSWORD|PASSWD|SECRET|TOKEN|(?:^|_)KEYS?$|PRIVATE|SALT|CREDENTIAL|AUTHORIZATION|(?:^|_)AUTH(?:_|$)/i.test(key) }
 
 function detectDeploySetup(projectPath) {
   if (!projectPath || !fs.statSync(projectPath).isDirectory()) throw new Error('Project folder not found')
@@ -178,7 +178,7 @@ function importProjectEnv(projectPath, file) {
   const imported = {}
   for (const [key, value] of Object.entries(values)) {
     const target = aliases[key] || key
-    if (setup.serverEnvKeys.includes(target)) imported[target] = value
+    if (setup.serverEnvKeys.includes(target) && !isPlaceholder(value)) imported[target] = value
   }
   return imported
 }
@@ -218,8 +218,8 @@ function generateEnvSecrets(keys) {
   const result = {}
   for (const key of keys) {
     if (key === 'APP_KEYS') result[key] = Array.from({ length: 4 }, () => crypto.randomBytes(24).toString('base64')).join(',')
-    else if (/^(?:POSTGRES_PASSWORD|API_TOKEN_SALT|ADMIN_JWT_SECRET|TRANSFER_TOKEN_SALT|JWT_SECRET|ENCRYPTION_KEY)$/.test(key)) result[key] = crypto.randomBytes(32).toString('hex')
+    else if (/^(?:POSTGRES_PASSWORD|API_TOKEN_SALT|ADMIN_JWT_SECRET|TRANSFER_TOKEN_SALT|JWT_SECRET|ENCRYPTION_KEY|IP_HASH_SECRET|FORM_CHALLENGE_SECRET)$/.test(key)) result[key] = crypto.randomBytes(32).toString('hex')
   }
   return result
 }
-module.exports = { importProjectEnv, detectDeploySetup, selectTarget, buildInventory, buildSecretBundle, sanitizeSlug, sanitizeLinuxUser, parseEnv, serializeEnv, shellQuote, readProjectFile, projectFile, isPlaceholder, generateEnvSecrets }
+module.exports = { importProjectEnv, detectDeploySetup, selectTarget, buildInventory, buildSecretBundle, sanitizeSlug, sanitizeLinuxUser, parseEnv, serializeEnv, shellQuote, readProjectFile, projectFile, isPlaceholder, isSensitive, generateEnvSecrets }

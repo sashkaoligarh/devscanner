@@ -3,13 +3,76 @@ const fs = require('fs')
 const yaml = require('js-yaml')
 const { SOURCE_EXTENSIONS, EXCLUDED_DIRS, FRAMEWORK_PORT_MAP, LANGUAGE_PORT_MAP, MANIFEST_FILES } = require('../constants')
 
+function isIgnoredDirectory(name) {
+  return name.startsWith('.') || EXCLUDED_DIRS.has(name)
+}
+
+function hasProjectManifest(entries) {
+  return MANIFEST_FILES.some(name => entries.includes(name)) ||
+    entries.some(name => name.endsWith('.csproj'))
+}
+
+function hasDockerFiles(entries) {
+  return ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'].some(name => entries.includes(name))
+}
+
+function isProjectRoot(projectPath, entries) {
+  if (hasProjectManifest(entries) || hasDockerFiles(entries)) return true
+  if (['.git', 'pnpm-workspace.yaml', 'lerna.json', 'nx.json', 'turbo.json'].some(name => entries.includes(name))) return true
+  if (['deploy/stack.yml', 'deploy/stack.yaml'].some(name => fs.existsSync(path.join(projectPath, name)))) return true
+
+  // Unversioned monoliths can have only frontend/backend (or frontend/cms)
+  // manifests. Unrelated projects inside a category must not be merged.
+  const components = []
+  for (const entry of entries) {
+    if (isIgnoredDirectory(entry)) continue
+    try {
+      const childPath = path.join(projectPath, entry)
+      if (!fs.lstatSync(childPath).isDirectory()) continue
+      const childEntries = fs.readdirSync(childPath)
+      if (!hasProjectManifest(childEntries) && !hasDockerFiles(childEntries)) continue
+      const match = entry.match(/^(?:(.+)[-_])?(frontend|front|web|ui|client|backend|back|server|api|cms)$/i)
+      if (!match) return false
+      components.push({ prefix: (match[1] || '').toLowerCase(), role: match[2].toLowerCase() })
+    } catch {
+      // skip inaccessible entries
+    }
+  }
+  return components.length >= 2 &&
+    components.every(component => component.prefix === components[0].prefix) &&
+    components.some(component => ['frontend', 'front', 'web', 'ui', 'client'].includes(component.role)) &&
+    components.some(component => ['backend', 'back', 'server', 'api', 'cms'].includes(component.role))
+}
+
+async function* findProjectRoots(folderPath, visited = new Set()) {
+  const realPath = await fs.promises.realpath(folderPath)
+  if (visited.has(realPath)) return
+  visited.add(realPath)
+  const entries = await fs.promises.readdir(folderPath, { withFileTypes: true })
+  if (isProjectRoot(folderPath, entries.map(entry => entry.name))) {
+    yield folderPath
+    return
+  }
+
+  for (const entry of entries) {
+    if (isIgnoredDirectory(entry.name) || (!entry.isDirectory() && !entry.isSymbolicLink())) continue
+    const childPath = path.join(folderPath, entry.name)
+    try {
+      if (entry.isSymbolicLink() && !(await fs.promises.stat(childPath)).isDirectory()) continue
+      yield* findProjectRoots(childPath, visited)
+    } catch {
+      // A missing or inaccessible child must not abort the rest of the scan.
+    }
+  }
+}
+
 function countSourceFiles(dir, depth = 0, maxDepth = 4) {
   if (depth >= maxDepth) return 0
   let count = 0
   try {
     const entries = fs.readdirSync(dir)
     for (const entry of entries) {
-      if (EXCLUDED_DIRS.has(entry)) continue
+      if (isIgnoredDirectory(entry)) continue
       const fullPath = path.join(dir, entry)
       try {
         const stat = fs.statSync(fullPath)
@@ -185,21 +248,15 @@ function analyzeSubprojects(projectPath, entries, depth = 0, maxDepth = 2) {
   const aggregatedFrameworks = new Set()
 
   for (const entry of entries) {
-    if (EXCLUDED_DIRS.has(entry)) continue
+    if (isIgnoredDirectory(entry)) continue
     const childPath = path.join(projectPath, entry)
     try {
       const stat = fs.statSync(childPath)
       if (!stat.isDirectory()) continue
       const childEntries = fs.readdirSync(childPath)
 
-      const hasChildManifest =
-        MANIFEST_FILES.some(m => childEntries.includes(m)) ||
-        childEntries.some(e => e.endsWith('.csproj'))
-
-      const hasChildDocker =
-        childEntries.includes('Dockerfile') ||
-        childEntries.includes('docker-compose.yml') ||
-        childEntries.includes('docker-compose.yaml')
+      const hasChildManifest = hasProjectManifest(childEntries)
+      const hasChildDocker = hasDockerFiles(childEntries)
 
       if (hasChildManifest || hasChildDocker) {
         const { languages, frameworks } = detectLanguagesAndFrameworks(childPath, childEntries)
@@ -361,15 +418,10 @@ function detectEnvFiles(dirPath) {
 function analyzeProject(projectPath) {
   try {
     const entries = fs.readdirSync(projectPath)
+    if (!isProjectRoot(projectPath, entries)) return null
 
-    const hasManifest =
-      MANIFEST_FILES.some(m => entries.includes(m)) ||
-      entries.some(e => e.endsWith('.csproj'))
-
-    const hasDocker =
-      entries.includes('Dockerfile') ||
-      entries.includes('docker-compose.yml') ||
-      entries.includes('docker-compose.yaml')
+    const hasManifest = hasProjectManifest(entries)
+    const hasDocker = hasDockerFiles(entries)
 
     let hasNpm = false
     if (entries.includes('package.json')) {
@@ -393,8 +445,6 @@ function analyzeProject(projectPath) {
 
     const sub = analyzeSubprojects(projectPath, entries)
     subprojects = sub.subprojects
-
-    if (!hasManifest && !hasDocker && !subprojects) return null
 
     if (!hasManifest) {
       languages = sub.aggregatedLanguages
@@ -469,6 +519,7 @@ function analyzeProject(projectPath) {
 }
 
 module.exports = {
+  findProjectRoots,
   countSourceFiles,
   getGitInfo,
   detectLanguagesAndFrameworks,

@@ -5,6 +5,8 @@ import Module from 'module'
 
 const mocks = vi.hoisted(() => ({
   provisionDeploy: vi.fn(),
+  checkDeploy: vi.fn(),
+  listDeployStates: vi.fn(), getDeployState: vi.fn(), saveDeployDraft: vi.fn(),
   loadSettings: vi.fn(),
   getSSHClient: vi.fn(),
   sshExec: vi.fn(),
@@ -31,7 +33,8 @@ Module._load = function (request, parent, isMain) {
       safeStorage: { isEncryptionAvailable: () => false }
     }
   }
-  if (request === '../utils/deploy-provision') return { provisionDeploy: mocks.provisionDeploy }
+  if (request === '../utils/deploy-provision') return { provisionDeploy: mocks.provisionDeploy, checkDeploy: mocks.checkDeploy }
+  if (request === '../utils/deploy-state') return { listDeployStates: mocks.listDeployStates, getDeployState: mocks.getDeployState, saveDeployDraft: mocks.saveDeployDraft }
   if (request === '../utils/settings-store') return { loadSettings: mocks.loadSettings }
   const parentDir = parent?.filename ? path.dirname(parent.filename) : ''
   if (request === '../utils/ssh-pool' || request === './utils/ssh-pool') {
@@ -111,6 +114,13 @@ describe('deploy handlers', () => {
   })
 
   describe('deploy setup IPC', () => {
+    it('returns read-only preflight results and preserves structured conflicts on a failed run', async () => {
+      const report = { blocked: true, ports: [{ id: 'cms:0', port: 1337, suggestedPort: 1338 }] }
+      mocks.checkDeploy.mockResolvedValue(report)
+      expect(await ipcMain.invoke('deploy-setup-check', { serverId: 'srv1' })).toEqual({ success: true, data: report })
+      mocks.provisionDeploy.mockRejectedValue(Object.assign(new Error('Port conflict'), { preflight: report }))
+      expect(await ipcMain.invoke('deploy-setup-run', { serverId: 'srv1' })).toMatchObject({ success: false, preflight: report, error: 'Port conflict' })
+    })
     it('runs the project preparation and forwards progress through the existing log event', async () => {
       const payload = { serverId: 'srv1', projectPath: '/project', mode: 'private-vpn' }
       mocks.provisionDeploy.mockImplementation(async (input, log) => { log('Installed Compose'); return { completed: ['Compose'] } })
@@ -123,6 +133,20 @@ describe('deploy handlers', () => {
       const error = Object.assign(new Error('Compose validation failed'), { completed: ['Docker', 'User'] })
       mocks.provisionDeploy.mockRejectedValue(error)
       expect(await ipcMain.invoke('deploy-setup-run', { serverId: 'srv1' })).toEqual({ success: false, error: 'Compose validation failed', completed: ['Docker', 'User'] })
+    })
+    it('returns saved credentials on failure and restores drafts through the bridge', async () => {
+      const identity = { projectPath: '/project', serverId: 'srv1', targetId: 'prod', mode: 'github-direct' }
+      const state = { profile: { ...identity, status: 'failed' }, result: { secrets: [{ name: 'SSH_PRIVATE_KEY', value: 'saved-key' }] } }
+      mocks.provisionDeploy.mockRejectedValue(Object.assign(new Error('Renewal failed'), { state }))
+      expect(await ipcMain.invoke('deploy-setup-run', identity)).toMatchObject({ success: false, state })
+      mocks.getDeployState.mockReturnValue(state)
+      expect(await ipcMain.invoke('deploy-setup-state', identity)).toEqual({ success: true, data: state })
+      const draft = { ...identity, envValues: { TOKEN: 'draft-secret' } }
+      mocks.saveDeployDraft.mockReturnValue(state)
+      expect(await ipcMain.invoke('deploy-setup-save-draft', draft)).toEqual({ success: true, data: state.profile })
+      expect(mocks.saveDeployDraft).toHaveBeenCalledWith(draft)
+      mocks.getDeployState.mockImplementationOnce(() => { throw new Error('Unlock secure storage') })
+      expect(await ipcMain.invoke('deploy-setup-state', identity)).toEqual({ success: false, error: 'Unlock secure storage' })
     })
     it('generates allowed app secrets via the bridge', async () => {
       const result = await ipcMain.invoke('deploy-setup-generate-env', { keys: ['JWT_SECRET', 'GHCR_TOKEN'] })

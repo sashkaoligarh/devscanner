@@ -49,7 +49,7 @@ jobs:
 
 export function directProject(root) {
   write(root, 'deployment/vars-prod.yml', '$ANSIBLE_VAULT;1.1;AES256\nfixture-ciphertext')
-  write(root, 'deployment/deployment-prod.yml', '- hosts: all\n  tasks:\n    - include_vars:\n        file: vars-prod.yml\n')
+  write(root, 'deployment/deployment-prod.yml', '- hosts: all\n  tasks:\n    - include_vars:\n        file: vars-prod.yml\n    - community.docker.docker_compose_v2:\n        project_name: fixture-direct\n        definition:\n          services:\n            frontend:\n              image: example/frontend:latest\n              ports: ["127.0.0.1:4321:8080"]\n')
   write(root, '.github/workflows/ci-prod.yml', `name: Deploy production
 on: [push]
 jobs:

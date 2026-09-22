@@ -5,7 +5,7 @@ import os from 'os'
 import path from 'path'
 import { execFileSync } from 'child_process'
 import { privateProject, directProject, write } from '../../fixtures/deploy-project'
-const { importProjectEnv, detectDeploySetup, selectTarget, buildInventory, buildSecretBundle, parseEnv, serializeEnv, generateEnvSecrets, readProjectFile } = require('../../../electron/utils/deploy-setup')
+const { importProjectEnv, detectDeploySetup, selectTarget, buildInventory, buildSecretBundle, parseEnv, serializeEnv, generateEnvSecrets, readProjectFile, isPlaceholder } = require('../../../electron/utils/deploy-setup')
 const dirs = []
 function project() { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-test-')); dirs.push(dir); return dir }
 afterEach(() => dirs.splice(0).forEach(d => fs.rmSync(d, { recursive: true, force: true })))
@@ -65,6 +65,10 @@ describe('project-aware deploy analysis', () => {
 })
 
 describe('env handling', () => {
+  it.each(['replace_with_a_long_random_value', 'replace_key_1,replace_key_2', 'github_pat_replace_me', 'REPLACE_WITH_A_RANDOM_VALUE'])('recognizes the deploy template placeholder %s', value => {
+    expect(isPlaceholder(value)).toBe(true)
+    expect(isPlaceholder('ghp_actualFixtureToken123456789')).toBe(false)
+  })
   it('roundtrips secrets without expanding shell substitutions, dollars or quotes', () => {
     const values = { PASSWORD: "p'a$$ $(touch /tmp/devscanner-test-injection) `echo no` # end", URL: 'https://host/path?a=b&c=d' }
     const text = serializeEnv(values)
@@ -85,10 +89,19 @@ describe('env handling', () => {
     expect(importProjectEnv(root, 'cms/.env')).toEqual({ POSTGRES_PASSWORD: 'local-database-secret' })
     expect(() => importProjectEnv(root, '../secret.env')).toThrow('detected env')
   })
+  it('does not import template placeholders as filled credentials', () => {
+    const root = project(); privateProject(root)
+    write(root, 'deploy/server.env', 'POSTGRES_PASSWORD=replace_with_a_random_value\nOPTIONAL_TOKEN=github_pat_replace_me\nPUBLIC_SITE_URL=http://10.0.0.7\n')
+    const values = importProjectEnv(root, 'deploy/server.env')
+    expect(values).toEqual({ PUBLIC_SITE_URL: 'http://10.0.0.7' })
+  })
   it('generates app secrets only, leaving provider credentials for the user', () => {
-    const generated = generateEnvSecrets(['APP_KEYS', 'JWT_SECRET', 'POSTGRES_PASSWORD', 'OPENAI_KEY', 'GHCR_TOKEN'])
+    const generated = generateEnvSecrets(['APP_KEYS', 'JWT_SECRET', 'POSTGRES_PASSWORD', 'IP_HASH_SECRET', 'FORM_CHALLENGE_SECRET', 'TURNSTILE_SECRET_KEY', 'OPENAI_KEY', 'GHCR_TOKEN'])
     expect(generated.APP_KEYS.split(',')).toHaveLength(4)
     expect(generated.JWT_SECRET).toHaveLength(64)
+    expect(generated.IP_HASH_SECRET).toHaveLength(64)
+    expect(generated.FORM_CHALLENGE_SECRET).toHaveLength(64)
+    expect(generated).not.toHaveProperty('TURNSTILE_SECRET_KEY')
     expect(generated).not.toHaveProperty('OPENAI_KEY')
     expect(generated).not.toHaveProperty('GHCR_TOKEN')
   })

@@ -3,6 +3,9 @@ import { Plus, Save, Check, X, Shield, RefreshCw, Trash2, ToggleLeft, ToggleRigh
 import CustomSelect from '../CustomSelect'
 import electron from '../../electronApi'
 
+const siteKey = site => site ? (site.source || 'sites-available') + '/' + site.name : ''
+const sitePayload = site => ({ siteName: site.name, source: site.source || 'sites-available' })
+
 export default function NginxManager({ serverId }) {
   const [sites, setSites] = useState([])
   const [loading, setLoading] = useState(true)
@@ -65,8 +68,8 @@ export default function NginxManager({ serverId }) {
   }, [nginxInstalled, loading, loadPorts])
 
   // Re-read site from server and update both raw + visual
-  const refreshSite = useCallback(async (siteName) => {
-    const result = await electron.sshNginxRead({ serverId, siteName })
+  const refreshSite = useCallback(async (site) => {
+    const result = await electron.sshNginxRead({ serverId, ...sitePayload(site) })
     if (result.success) {
       setSiteContent(result.data)
       const p = result.data.parsed
@@ -78,14 +81,17 @@ export default function NginxManager({ serverId }) {
         proxyPass: p.locations?.find(l => l.directives?.proxy_pass)?.directives?.proxy_pass || '',
         type: hasProxy ? 'proxy' : p.root ? 'static' : 'redirect'
       })
-    }
+    } else setError(result.error)
   }, [serverId])
 
-  const handleSelectSite = useCallback(async (siteName) => {
-    setSelectedSite(siteName)
+  const handleSelectSite = useCallback(async (site) => {
+    setSelectedSite(site)
+    setSiteContent({ raw: '', parsed: null })
+    // Existing files may contain upstreams, maps and access rules the visual template cannot retain.
+    setEditMode('raw')
     setTestResult(null)
     setError(null)
-    await refreshSite(siteName)
+    await refreshSite(site)
   }, [refreshSite])
 
   const generateFromVisual = useCallback(() => {
@@ -124,7 +130,7 @@ export default function NginxManager({ serverId }) {
     if (!selectedSite) return
     setSaving(true)
     const content = editMode === 'raw' ? siteContent.raw : generateFromVisual()
-    const result = await electron.sshNginxSave({ serverId, siteName: selectedSite, content })
+    const result = await electron.sshNginxSave({ serverId, ...sitePayload(selectedSite), content })
     if (result.success) {
       // Re-read from server to sync both raw and visual
       await refreshSite(selectedSite)
@@ -135,13 +141,15 @@ export default function NginxManager({ serverId }) {
     setSaving(false)
   }, [serverId, selectedSite, editMode, siteContent.raw, generateFromVisual, refreshSite])
 
-  const handleToggleEnable = useCallback(async (siteName, currentlyEnabled) => {
+  const handleToggleEnable = useCallback(async (site, currentlyEnabled) => {
     setActionLoading(currentlyEnabled ? 'disable' : 'enable')
     const fn = currentlyEnabled ? electron.sshNginxDisable : electron.sshNginxEnable
-    await fn({ serverId, siteName })
+    const result = await fn({ serverId, ...sitePayload(site) })
     await loadSites()
+    if (!result.success) setError(result.error)
+    if (selectedSite && siteKey(selectedSite) === siteKey(site)) await refreshSite(site)
     setActionLoading(null)
-  }, [serverId, loadSites])
+  }, [serverId, loadSites, selectedSite, refreshSite])
 
   const handleTest = useCallback(async () => {
     setActionLoading('test')
@@ -226,19 +234,19 @@ export default function NginxManager({ serverId }) {
     if (result.success) {
       setNewSiteName('')
       await loadSites()
-      handleSelectSite(safeName)
+      handleSelectSite({ name: safeName, source: 'sites-available' })
     } else {
       setError(result.error)
     }
     setCreating(false)
   }, [serverId, newSiteName, newSiteTemplate, loadSites, handleSelectSite])
 
-  const handleDelete = useCallback(async (siteName) => {
+  const handleDelete = useCallback(async (site) => {
     setActionLoading('delete')
-    const result = await electron.sshNginxDelete({ serverId, siteName })
-    if (!result.success) setError(result.error)
+    const result = await electron.sshNginxDelete({ serverId, ...sitePayload(site) })
     await loadSites()
-    if (selectedSite === siteName) setSelectedSite(null)
+    if (!result.success) setError(result.error)
+    if (result.success && siteKey(selectedSite) === siteKey(site)) setSelectedSite(null)
     setActionLoading(null)
   }, [serverId, selectedSite, loadSites])
 
@@ -298,10 +306,11 @@ export default function NginxManager({ serverId }) {
 
         {sites.map(site => (
           <div
-            key={site.name}
-            className={`project-card${selectedSite === site.name ? ' running' : ''}`}
+            key={siteKey(site)}
+            className={`project-card${siteKey(selectedSite) === siteKey(site) ? ' running' : ''}`}
             style={{ padding: '0.5rem', marginBottom: '0.25rem', cursor: 'pointer' }}
-            onClick={() => handleSelectSite(site.name)}
+            onClick={() => handleSelectSite(site)}
+            title={site.path}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>{site.name}</span>
@@ -309,12 +318,14 @@ export default function NginxManager({ serverId }) {
                 <button
                   className="btn-icon"
                   title={site.enabled ? 'Disable' : 'Enable'}
-                  onClick={(e) => { e.stopPropagation(); handleToggleEnable(site.name, site.enabled) }}
+                  disabled={!!actionLoading}
+                  onClick={(e) => { e.stopPropagation(); handleToggleEnable(site, site.enabled) }}
                 >
                   {site.enabled ? <ToggleRight size={14} style={{ color: 'var(--color-success)' }} /> : <ToggleLeft size={14} />}
                 </button>
               </div>
             </div>
+            <div className="deploy-help">{site.source || 'sites-available'}</div>
             {site.enabled && <span className="tag" style={{ fontSize: '0.6rem', marginTop: '0.25rem' }}>enabled</span>}
           </div>
         ))}
@@ -356,12 +367,13 @@ export default function NginxManager({ serverId }) {
 
       {/* Editor */}
       <div style={{ flex: 1, minWidth: 0 }}>
+        {error && <p className="deploy-help" role="alert">{error}</p>}
         {!selectedSite ? (
           <div className="empty-state"><div className="empty-state-text">Select a site to edit</div></div>
         ) : (
           <>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{selectedSite}</span>
+              <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{selectedSite.name}</span>
               <button
                 className={`btn btn-sm${editMode === 'visual' ? ' btn-primary' : ''}`}
                 onClick={() => setEditMode('visual')}
@@ -380,13 +392,14 @@ export default function NginxManager({ serverId }) {
               <button className="btn btn-sm" onClick={() => handleCertbot(visualConfig.serverName)} disabled={!!actionLoading || !visualConfig.serverName}>
                 {actionLoading === 'certbot' ? <Loader size={10} className="spin" /> : <Shield size={10} />} SSL
               </button>
-              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving || !siteContent.parsed}>
                 {saving ? <Loader size={10} className="spin" /> : <Save size={10} />} Save
               </button>
               <button className="btn btn-danger btn-sm" onClick={() => handleDelete(selectedSite)} disabled={!!actionLoading}>
                 {actionLoading === 'delete' ? <Loader size={10} className="spin" /> : <Trash2 size={10} />} Delete
               </button>
             </div>
+            <p className="deploy-help">{siteContent.path || selectedSite.path}</p>
 
             {testResult && (
               <div style={{
@@ -564,6 +577,7 @@ export default function NginxManager({ serverId }) {
             ) : (
               <textarea
                 className="env-editor-textarea"
+                aria-label="Nginx configuration"
                 style={{ width: '100%', minHeight: '400px', fontFamily: 'monospace', fontSize: '0.75rem' }}
                 value={siteContent.raw}
                 onChange={e => setSiteContent(prev => ({ ...prev, raw: e.target.value }))}

@@ -51,6 +51,21 @@ describe('useProjects', () => {
       expect(result.current.filteredProjects).toHaveLength(3)
     })
 
+    it('filters by category path while keeping duplicate names distinct', () => {
+      const { result } = renderHook(() => useProjects())
+      const projects = [
+        { name: 'app', path: '/projects/kr/app', relativePath: 'kr/app', languages: [], frameworks: [] },
+        { name: 'app', path: '/projects/pets/app', relativePath: 'pets/app', languages: [], frameworks: [] },
+      ]
+      act(() => { result.current.setProjects(projects) })
+      act(() => { result.current.setSearchQuery(' KR/ ') })
+      expect(result.current.filteredProjects).toEqual([projects[0]])
+      act(() => { result.current.setSearchQuery('pets') })
+      expect(result.current.filteredProjects).toEqual([projects[1]])
+      act(() => { result.current.setSearchQuery('app') })
+      expect(result.current.filteredProjects).toEqual(projects)
+    })
+
     it('sorts favorites first', () => {
       const { result } = renderHook(() => useProjects())
 
@@ -162,5 +177,15 @@ describe('useProjects', () => {
       expect(result.current.favorites.has('/proj/a')).toBe(false)
       expect(result.current.favorites.has('/proj/b')).toBe(true)
     })
+  })
+
+  it('stores expanded folders by their full path and toggles each folder independently', () => {
+    const { result } = renderHook(() => useProjects())
+    act(() => { result.current.toggleProjectFolder('/projects/kr') })
+    act(() => { result.current.toggleProjectFolder('/other/kr') })
+    expect(result.current.expandedProjectFolders).toEqual(new Set(['/projects/kr', '/other/kr']))
+    act(() => { result.current.toggleProjectFolder('/projects/kr') })
+    expect(result.current.expandedProjectFolders).toEqual(new Set(['/other/kr']))
+    expect(mockElectron.saveSettings).toHaveBeenLastCalledWith({ expandedProjectFolders: ['/other/kr'] })
   })
 })

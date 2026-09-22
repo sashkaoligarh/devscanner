@@ -6,7 +6,7 @@ const SOURCE_EXTENSIONS = new Set([
 const EXCLUDED_DIRS = new Set([
   'node_modules', 'vendor', 'dist', 'build', '.git', '__pycache__',
   'venv', '.venv', 'env', '.env', '.tox', '.mypy_cache', '.pytest_cache',
-  'target', '.next', '.nuxt', 'coverage', '.cache'
+  'target', '.next', '.nuxt', 'coverage', '.cache', 'release'
 ])
 
 const FRAMEWORK_PORT_MAP = {

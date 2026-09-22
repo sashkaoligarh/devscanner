@@ -52,6 +52,18 @@ describe('ProjectCard', () => {
     expect(screen.getByText('my-app')).toBeInTheDocument()
   })
 
+  it('shows the category path and deploys the entire project from its root', () => {
+    const project = makeProject({
+      name: 'kpcep', path: '/projects/kr/kpcep', relativePath: 'kr/kpcep',
+      subprojects: [{ name: 'cms', path: '/projects/kr/kpcep/cms' }, { name: 'frontend', path: '/projects/kr/kpcep/frontend' }]
+    })
+    const onDeploySetup = vi.fn()
+    render(<ProjectCard {...defaultProps({ project, onDeploySetup })} />)
+    expect(screen.getByText('kr/kpcep')).toHaveAttribute('title', '/projects/kr/kpcep')
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+    expect(onDeploySetup).toHaveBeenCalledWith(project)
+  })
+
   it('renders language and framework tags', () => {
     render(<ProjectCard {...defaultProps()} />)
     expect(screen.getByText('JavaScript')).toBeInTheDocument()

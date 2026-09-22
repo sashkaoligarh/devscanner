@@ -2,7 +2,7 @@ const { dialog } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const { loadSettings, saveSettings } = require('../utils/settings-store')
-const { analyzeProject } = require('../utils/analysis')
+const { analyzeProject, findProjectRoots } = require('../utils/analysis')
 const { logError, startTimer } = require('../utils/app-log')
 
 function yieldToEventLoop() {
@@ -43,28 +43,26 @@ function registerProjectsHandlers(ipcMain, ctx) {
         return { success: false, error: 'Folder not found or inaccessible' }
       }
 
-      const entries = fs.readdirSync(folderPath)
       const projects = []
       const slowEntries = []
 
-      for (let i = 0; i < entries.length; i++) {
+      let i = 0
+      for await (const projectPath of findProjectRoots(path.resolve(folderPath))) {
         if (i > 0 && i % 10 === 0) await yieldToEventLoop()
-        const entry = entries[i]
-        const childPath = path.join(folderPath, entry)
+        i++
         try {
           const startedAt = Date.now()
-          const stat = fs.statSync(childPath)
-          if (!stat.isDirectory()) continue
-          const project = analyzeProject(childPath)
-          if (project) projects.push(project)
+          const project = analyzeProject(projectPath)
+          const relativePath = path.relative(folderPath, projectPath).split(path.sep).join('/') || path.basename(projectPath)
+          if (project) projects.push({ ...project, relativePath })
           const durationMs = Date.now() - startedAt
-          if (durationMs > 750) slowEntries.push({ entry, durationMs })
+          if (durationMs > 750) slowEntries.push({ entry: relativePath, durationMs })
         } catch {
           // skip inaccessible entries
         }
       }
 
-      end({ success: true, entries: entries.length, projects: projects.length, slowEntries: slowEntries.slice(0, 10) })
+      end({ success: true, projects: projects.length, slowEntries: slowEntries.slice(0, 10) })
       return { success: true, data: projects }
     } catch (err) {
       end({ success: false, error: err.message })

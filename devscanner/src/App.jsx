@@ -16,6 +16,7 @@ import useDockerServices from './hooks/useDockerServices'
 // Components
 import Header from './components/Header'
 import ProjectCard from './components/ProjectCard'
+import ProjectGroups from './components/ProjectGroups'
 import LaunchModal from './components/LaunchModal'
 import EnvEditorModal from './components/EnvEditorModal'
 import DockerServicesModal from './components/DockerServicesModal'
@@ -50,6 +51,7 @@ export default function App() {
     previewFavoriteOrder, setPreviewFavoriteOrder,
     previewFavorites, setPreviewFavorites,
     gitInfoCache, setGitInfoCache, filteredProjects,
+    expandedProjectFolders, setExpandedProjectFolders, toggleProjectFolder,
     handleSelectFolder, toggleFavorite, reorderFavorites, refreshGitInfo,
     setProjects, setScanning, setScanError
   } = projectsHook
@@ -129,6 +131,7 @@ export default function App() {
       if (settings.favorites) setFavorites(new Set(settings.favorites))
       if (settings.favoriteOrder) setFavoriteOrder(settings.favoriteOrder)
       else if (settings.favorites) setFavoriteOrder(settings.favorites)
+      if (settings.expandedProjectFolders) setExpandedProjectFolders(new Set(settings.expandedProjectFolders))
       if (settings.remoteServers) setRemoteServers(settings.remoteServers)
       if (settings.lastFolder) {
         setFolderPath(settings.lastFolder)
@@ -208,16 +211,8 @@ export default function App() {
   const gridColsRef = useRef(3)
   const cardRectsRef = useRef(new Map())
 
-  // Build a lookup: projectPath → visual index.
-  // Runs synchronously after DOM commit so it's never stale.
-  const idxMapRef = useRef(new Map())
-
   // FLIP animation: capture old positions, compute deltas, animate
   useLayoutEffect(() => {
-    const m = new Map()
-    filteredProjects.forEach((p, i) => m.set(p.path, i))
-    idxMapRef.current = m
-
     const oldRects = cardRectsRef.current
     if (!gridRef.current || oldRects.size === 0) return
     const cards = gridRef.current.querySelectorAll('[data-project-path]')
@@ -262,8 +257,9 @@ export default function App() {
     dragRef.current = projectPath
     previewOrderRef.current = null
     previewFavsRef.current = null
-    if (gridRef.current) {
-      gridColsRef.current = getComputedStyle(gridRef.current)
+    const grid = e.currentTarget.closest('.project-grid')
+    if (grid) {
+      gridColsRef.current = getComputedStyle(grid)
         .gridTemplateColumns.split(' ').length
     }
     e.dataTransfer.effectAllowed = 'move'
@@ -271,14 +267,16 @@ export default function App() {
   }, [])
 
   const handleDragOver = useCallback((e, projectPath) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
     if (!dragRef.current || dragRef.current === projectPath) return
 
-    const idxMap = idxMapRef.current
-    const fromIdx = idxMap.get(dragRef.current)
-    const toIdx = idxMap.get(projectPath)
-    if (fromIdx === undefined || toIdx === undefined || fromIdx === toIdx) return
+    // Favorites can be reordered inside their folder; dragging never moves a
+    // project into a different filesystem category.
+    const cards = [...(e.currentTarget.closest('.project-grid')?.querySelectorAll('[data-project-path]') || [])]
+    const fromIdx = cards.findIndex(card => card.dataset.projectPath === dragRef.current)
+    const toIdx = cards.findIndex(card => card.dataset.projectPath === projectPath)
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
 
     const cols = gridColsRef.current
     const fromCol = fromIdx % cols
@@ -336,6 +334,8 @@ export default function App() {
   }, [favorites, favoriteOrder, captureCardPositions, setPreviewFavoriteOrder, setPreviewFavorites])
 
   const handleDrop = useCallback((e) => {
+    const cards = [...(e.currentTarget.closest('.project-grid')?.querySelectorAll('[data-project-path]') || [])]
+    if (!cards.some(card => card.dataset.projectPath === dragRef.current)) return
     e.preventDefault()
     if (dragRef.current && (previewOrderRef.current || previewFavsRef.current)) {
       const finalOrder = previewOrderRef.current || favoriteOrder
@@ -590,42 +590,49 @@ export default function App() {
                   </button>
                 </div>
               ) : filteredProjects.length > 0 ? (
-                <div className="project-grid" ref={gridRef}>
-                  {filteredProjects.map(project => (
-                    <ProjectCard
-                      key={project.path}
-                      project={project}
-                      instances={running[project.path]}
-                      onLaunch={() => setLaunchModal({ project })}
-                      onStop={handleStop}
-                      onOpenBrowser={handleOpenBrowser}
-                      onViewTab={(tabKey) => setActiveTab(tabKey)}
-                      openTabs={openTabs}
-                      isFavorite={(previewFavorites || favorites).has(project.path)}
-                      onToggleFavorite={toggleFavorite}
-                      health={health}
-                      gitInfo={gitInfoCache[project.path] || null}
-                      onGitFetch={(p) => electron.gitFetch({ projectPath: p }).then(() =>
-                        electron.gitInfo({ projectPath: p }).then(info => {
-                          if (info) setGitInfoCache(prev => ({ ...prev, [p]: info }))
-                        })
-                      )}
-                      onGitPull={(p) => electron.gitPull({ projectPath: p }).then(() =>
-                        electron.gitInfo({ projectPath: p }).then(info => {
-                          if (info) setGitInfoCache(prev => ({ ...prev, [p]: info }))
-                        })
-                      )}
-                      hostIp={hostIp}
-                      onEnvEdit={(p) => setEnvModal({ project: p })}
-                      onDockerServices={(p) => openServicesModal(p)}
-                      onDeploySetup={(p) => setDeploySetupModal({ project: p })}
-                      isDragOver={false}
-                      onDragStart={handleDragStart}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDrop}
-                      onDragEnd={handleDragEnd}
-                    />
-                  ))}
+                <div ref={gridRef}>
+                  <ProjectGroups
+                    projects={filteredProjects}
+                    folderPath={folderPath}
+                    searchQuery={searchQuery}
+                    expandedFolders={expandedProjectFolders}
+                    onToggleFolder={toggleProjectFolder}
+                    renderProject={project => (
+                      <ProjectCard
+                        key={project.path}
+                        project={project}
+                        instances={running[project.path]}
+                        onLaunch={() => setLaunchModal({ project })}
+                        onStop={handleStop}
+                        onOpenBrowser={handleOpenBrowser}
+                        onViewTab={(tabKey) => setActiveTab(tabKey)}
+                        openTabs={openTabs}
+                        isFavorite={(previewFavorites || favorites).has(project.path)}
+                        onToggleFavorite={toggleFavorite}
+                        health={health}
+                        gitInfo={gitInfoCache[project.path] || null}
+                        onGitFetch={(p) => electron.gitFetch({ projectPath: p }).then(() =>
+                          electron.gitInfo({ projectPath: p }).then(info => {
+                            if (info) setGitInfoCache(prev => ({ ...prev, [p]: info }))
+                          })
+                        )}
+                        onGitPull={(p) => electron.gitPull({ projectPath: p }).then(() =>
+                          electron.gitInfo({ projectPath: p }).then(info => {
+                            if (info) setGitInfoCache(prev => ({ ...prev, [p]: info }))
+                          })
+                        )}
+                        hostIp={hostIp}
+                        onEnvEdit={(p) => setEnvModal({ project: p })}
+                        onDockerServices={(p) => openServicesModal(p)}
+                        onDeploySetup={(p) => setDeploySetupModal({ project: p })}
+                        isDragOver={false}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        onDragEnd={handleDragEnd}
+                      />
+                    )}
+                  />
                 </div>
               ) : folderPath && !scanning ? (
                 <div className="empty-state">

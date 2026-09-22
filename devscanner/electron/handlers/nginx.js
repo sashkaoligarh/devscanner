@@ -1,8 +1,29 @@
 const { getSSHClient, sshExec, sshExecSudo, getServerPassword } = require('../utils/ssh-pool')
-const { parseNginxConfig, generateNginxConfig } = require('../utils/nginx-utils')
+const { parseNginxConfig } = require('../utils/nginx-utils')
+const { shellQuote: q } = require('../utils/deploy-setup')
+
+function siteFiles(siteName, source = 'sites-available') {
+  if (typeof siteName !== 'string' || !/^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/.test(siteName) || siteName.length > 255) throw new Error('Invalid site name')
+  if (!['sites-available', 'conf.d'].includes(source)) throw new Error('Invalid nginx config directory')
+  if (source === 'conf.d' && !siteName.endsWith('.conf')) throw new Error('conf.d files must end in .conf')
+  const file = '/etc/nginx/' + source + '/' + siteName
+  return { name: siteName, source, file, enabled: source === 'conf.d' ? file : '/etc/nginx/sites-enabled/' + siteName, disabled: file + '.disabled' }
+}
+
+function selectSiteFile(site) {
+  return site.source === 'conf.d'
+    ? 'site_file=' + q(site.file) + '\nif [ ! -e "$site_file" ] && [ -f ' + q(site.disabled) + ' ]; then site_file=' + q(site.disabled) + '; fi\n'
+    : 'site_file=' + q(site.file) + '\nif [ -f ' + q(site.enabled) + ' ]; then site_file=' + q(site.enabled) + '; fi\n'
+}
+
+async function sudoChecked(client, command, password) {
+  const result = await sshExecSudo(client, command, password, 10000)
+  if (result.code !== 0) throw new Error((result.stderr || result.stdout || 'Remote nginx command failed').trim())
+  return result
+}
 
 function registerNginxHandlers(ipcMain, ctx) {
-  // List sites-available and sites-enabled
+  // Include deploy configs installed in conf.d, keeping same-named files distinct.
   ipcMain.handle('ssh-nginx-list', async (_, { serverId }) => {
     try {
       const client = getSSHClient(serverId)
@@ -14,15 +35,22 @@ function registerNginxHandlers(ipcMain, ctx) {
         return { success: false, error: 'nginx_not_installed' }
       }
 
-      const [available, enabled] = await Promise.all([
+      const [available, enabled, confFiles] = await Promise.all([
         sshExec(client, 'ls /etc/nginx/sites-available/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => []),
-        sshExec(client, 'ls /etc/nginx/sites-enabled/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => [])
+        sshExec(client, 'ls /etc/nginx/sites-enabled/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => []),
+        sshExec(client, 'ls /etc/nginx/conf.d/ 2>/dev/null').then(r => r.stdout.trim().split('\n').filter(Boolean)).catch(() => [])
       ])
 
-      const sites = available.map(name => ({
+      const sites = [...new Set([...available, ...enabled])].sort().map(name => ({
         name,
+        source: 'sites-available',
+        path: '/etc/nginx/' + (enabled.includes(name) ? 'sites-enabled/' : 'sites-available/') + name,
         enabled: enabled.includes(name)
       }))
+      for (const name of [...new Set(confFiles.filter(name => /\.conf(?:\.disabled)?$/.test(name)).map(name => name.replace(/\.disabled$/, '')))].sort()) {
+        const active = confFiles.includes(name)
+        sites.push({ name, source: 'conf.d', path: '/etc/nginx/conf.d/' + name + (active ? '' : '.disabled'), enabled: active })
+      }
 
       return { success: true, data: sites }
     } catch (err) {
@@ -31,46 +59,31 @@ function registerNginxHandlers(ipcMain, ctx) {
   })
 
   // Read a specific site config
-  ipcMain.handle('ssh-nginx-read', async (_, { serverId, siteName }) => {
+  ipcMain.handle('ssh-nginx-read', async (_, { serverId, siteName, source }) => {
     try {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
 
-      const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
-      if (!safeName) return { success: false, error: 'Invalid site name' }
-
-      // Read from sites-enabled (may differ from sites-available after certbot)
-      let stdout
-      try {
-        const enabledRes = await sshExec(client, `cat /etc/nginx/sites-enabled/${safeName} 2>/dev/null`)
-        stdout = enabledRes.stdout
-      } catch {
-        stdout = ''
-      }
-      if (!stdout.trim()) {
-        const availRes = await sshExec(client, `cat /etc/nginx/sites-available/${safeName}`)
-        stdout = availRes.stdout
-      }
-      const parsed = parseNginxConfig(stdout)
-
-      return { success: true, data: { raw: stdout, parsed, name: safeName } }
+      const site = siteFiles(siteName, source)
+      const result = await sudoChecked(client, selectSiteFile(site) + 'printf "%s\\n" "$site_file"\ncat -- "$site_file"', getServerPassword(serverId))
+      const newline = result.stdout.indexOf('\n')
+      const file = result.stdout.slice(0, newline), raw = result.stdout.slice(newline + 1)
+      return { success: true, data: { raw, parsed: parseNginxConfig(raw), name: site.name, source: site.source, path: file } }
     } catch (err) {
       return { success: false, error: err.message }
     }
   })
 
   // Save/create a site config
-  ipcMain.handle('ssh-nginx-save', async (_, { serverId, siteName, content }) => {
+  ipcMain.handle('ssh-nginx-save', async (_, { serverId, siteName, source, content }) => {
     try {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
       const password = getServerPassword(serverId)
 
-      const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
-      if (!safeName) return { success: false, error: 'Invalid site name' }
-
-      const escaped = content.replace(/'/g, "'\\''")
-      await sshExecSudo(client, `echo '${escaped}' | tee /etc/nginx/sites-available/${safeName} > /dev/null`, password, 10000)
+      const site = siteFiles(siteName, source)
+      if (typeof content !== 'string' || content.includes('\0') || content.length > 2 * 1024 * 1024) throw new Error('Invalid nginx config content')
+      await sudoChecked(client, selectSiteFile(site) + 'printf "%s" ' + q(content) + ' > "$site_file"', password)
 
       return { success: true }
     } catch (err) {
@@ -79,16 +92,16 @@ function registerNginxHandlers(ipcMain, ctx) {
   })
 
   // Enable a site (symlink)
-  ipcMain.handle('ssh-nginx-enable', async (_, { serverId, siteName }) => {
+  ipcMain.handle('ssh-nginx-enable', async (_, { serverId, siteName, source }) => {
     try {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
       const password = getServerPassword(serverId)
 
-      const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
-      if (!safeName) return { success: false, error: 'Invalid site name' }
-
-      await sshExecSudo(client, `ln -sf /etc/nginx/sites-available/${safeName} /etc/nginx/sites-enabled/${safeName}`, password, 10000)
+      const site = siteFiles(siteName, source)
+      await sudoChecked(client, site.source === 'conf.d'
+        ? 'test ! -e ' + q(site.file) + ' && test ! -L ' + q(site.file) + ' && mv -- ' + q(site.disabled) + ' ' + q(site.file)
+        : 'test -f ' + q(site.file) + ' && ln -sf -- ' + q(site.file) + ' ' + q(site.enabled), password)
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
@@ -96,16 +109,18 @@ function registerNginxHandlers(ipcMain, ctx) {
   })
 
   // Disable a site (remove symlink)
-  ipcMain.handle('ssh-nginx-disable', async (_, { serverId, siteName }) => {
+  ipcMain.handle('ssh-nginx-disable', async (_, { serverId, siteName, source }) => {
     try {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
       const password = getServerPassword(serverId)
 
-      const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
-      if (!safeName) return { success: false, error: 'Invalid site name' }
-
-      await sshExecSudo(client, `rm -f /etc/nginx/sites-enabled/${safeName}`, password, 10000)
+      const site = siteFiles(siteName, source)
+      await sudoChecked(client, site.source === 'conf.d'
+        ? 'test ! -e ' + q(site.disabled) + ' && test ! -L ' + q(site.disabled) + ' && mv -- ' + q(site.file) + ' ' + q(site.disabled)
+        : 'if [ -L ' + q(site.enabled) + ' ]; then rm -- ' + q(site.enabled) + ';\n' +
+          'elif [ -f ' + q(site.enabled) + ' ]; then\n' +
+          '  test ! -e ' + q(site.file) + ' && test ! -L ' + q(site.file) + ' && mv -- ' + q(site.enabled) + ' ' + q(site.file) + ';\nfi', password)
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
@@ -113,25 +128,18 @@ function registerNginxHandlers(ipcMain, ctx) {
   })
 
   // Delete a site config (remove from sites-enabled + sites-available, reload nginx)
-  ipcMain.handle('ssh-nginx-delete', async (_, { serverId, siteName }) => {
+  ipcMain.handle('ssh-nginx-delete', async (_, { serverId, siteName, source }) => {
     try {
       const client = getSSHClient(serverId)
       if (!client) return { success: false, error: 'Not connected' }
       const password = getServerPassword(serverId)
 
-      const safeName = siteName.replace(/[^a-zA-Z0-9._-]/g, '')
-      if (!safeName) return { success: false, error: 'Invalid site name' }
-
-      // Remove symlink + config file
-      await sshExecSudo(client, `rm -f /etc/nginx/sites-enabled/${safeName}`, password, 10000)
-      await sshExecSudo(client, `rm -f /etc/nginx/sites-available/${safeName}`, password, 10000)
+      const site = siteFiles(siteName, source)
+      await sudoChecked(client, 'rm -f -- ' + (site.source === 'conf.d' ? [site.file, site.disabled] : [site.enabled, site.file]).map(q).join(' '), password)
 
       // Test & reload
-      const testResult = await sshExecSudo(client, 'nginx -t 2>&1', password, 10000)
-      const testOk = (testResult.stdout + testResult.stderr).includes('successful')
-      if (testOk) {
-        await sshExecSudo(client, 'systemctl reload nginx', password, 10000)
-      }
+      await sudoChecked(client, 'nginx -t 2>&1', password)
+      await sudoChecked(client, 'systemctl reload nginx', password)
 
       return { success: true }
     } catch (err) {
@@ -147,7 +155,7 @@ function registerNginxHandlers(ipcMain, ctx) {
       const password = getServerPassword(serverId)
 
       const result = await sshExecSudo(client, 'nginx -t 2>&1', password, 10000)
-      const ok = (result.stdout + result.stderr).includes('successful')
+      const ok = result.code === 0
       return { success: true, data: { ok, output: result.stdout + result.stderr } }
     } catch (err) {
       return { success: false, error: err.message }
@@ -161,7 +169,7 @@ function registerNginxHandlers(ipcMain, ctx) {
       if (!client) return { success: false, error: 'Not connected' }
       const password = getServerPassword(serverId)
 
-      await sshExecSudo(client, 'systemctl reload nginx', password, 10000)
+      await sudoChecked(client, 'systemctl reload nginx', password)
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }

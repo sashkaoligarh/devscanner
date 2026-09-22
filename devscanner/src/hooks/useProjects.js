@@ -13,13 +13,23 @@ export default function useProjects() {
   const [previewFavorites, setPreviewFavorites] = useState(null)
   const [gitInfoCache, setGitInfoCache] = useState({})
   const [sortBy, setSortBy] = useState(null)
+  const [expandedProjectFolders, setExpandedProjectFolders] = useState(new Set())
+
+  const toggleProjectFolder = useCallback(folder => {
+    const next = new Set(expandedProjectFolders)
+    if (next.has(folder)) next.delete(folder)
+    else next.add(folder)
+    setExpandedProjectFolders(next)
+    electron.saveSettings({ expandedProjectFolders: [...next] })
+  }, [expandedProjectFolders])
 
   const filteredProjects = useMemo(() => {
     let list = projects
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
+      const q = searchQuery.trim().toLowerCase()
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
+        p.relativePath?.toLowerCase().includes(q) ||
         p.languages.some(l => l.toLowerCase().includes(q)) ||
         p.frameworks.some(f => f.toLowerCase().includes(q))
       )
@@ -136,6 +146,9 @@ export default function useProjects() {
     sortBy,
     setSortBy,
     filteredProjects,
+    expandedProjectFolders,
+    setExpandedProjectFolders,
+    toggleProjectFolder,
     handleScan,
     handleSelectFolder,
     toggleFavorite,

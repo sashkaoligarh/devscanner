@@ -9,7 +9,8 @@ const {
   importProjectEnv,
   generateEnvSecrets
 } = require('../utils/deploy-setup')
-const { provisionDeploy } = require('../utils/deploy-provision')
+const { provisionDeploy, checkDeploy } = require('../utils/deploy-provision')
+const { listDeployStates, getDeployState, saveDeployDraft } = require('../utils/deploy-state')
 
 function sendProgress(ctx, serverId, progress) {
   const mainWindow = ctx.mainWindow()
@@ -28,10 +29,19 @@ function sendLog(ctx, serverId, message) {
 function registerDeployHandlers(ipcMain, ctx) {
   ipcMain.handle('deploy-setup-preview', async (_, { projectPath }) => {
     try {
-      return { success: true, data: detectDeploySetup(projectPath) }
+      return { success: true, data: { ...detectDeploySetup(projectPath), profiles: listDeployStates(projectPath) } }
     } catch (err) {
       return { success: false, error: err.message }
     }
+  })
+
+  ipcMain.handle('deploy-setup-state', async (_, identity) => {
+    try { return { success: true, data: getDeployState(identity) } }
+    catch (err) { return { success: false, error: err.message } }
+  })
+  ipcMain.handle('deploy-setup-save-draft', async (_, input) => {
+    try { return { success: true, data: saveDeployDraft(input).profile } }
+    catch (err) { return { success: false, error: err.message } }
   })
 
   ipcMain.handle('deploy-setup-import-env', async (_, { projectPath, file }) => {
@@ -47,13 +57,20 @@ function registerDeployHandlers(ipcMain, ctx) {
     catch (err) { return { success: false, error: err.message } }
   })
 
+  ipcMain.handle('deploy-setup-check', async (_, payload = {}) => {
+    try { return { success: true, data: await checkDeploy(payload) } }
+    catch (err) { return { success: false, error: err.message } }
+  })
+
   ipcMain.handle('deploy-setup-run', async (_, payload = {}) => {
     try {
       const data = await provisionDeploy(payload, message => sendLog(ctx, payload.serverId, message))
+      if (payload.assistantProposalId) require('../utils/deploy-assistant').assistant.recordOutcome(payload, 'prepared')
       return { success: true, data }
     } catch (err) {
       if (payload.serverId) sendLog(ctx, payload.serverId, '✗ ' + err.message)
-      return { success: false, error: err.message, completed: err.completed || [] }
+      if (payload.assistantProposalId) require('../utils/deploy-assistant').assistant.recordOutcome(payload, 'failed')
+      return { success: false, error: err.message, completed: err.completed || [], ...(err.preflight ? { preflight: err.preflight } : {}), ...(err.state ? { state: err.state } : {}) }
     }
   })
 

@@ -127,9 +127,21 @@ contextBridge.exposeInMainWorld('electron', {
   selectDeployFolder: () => ipcRenderer.invoke('select-deploy-folder'),
   sshUploadFolder: (opts) => ipcRenderer.invoke('ssh-upload-folder', opts),
   deploySetupPreview: (opts) => ipcRenderer.invoke('deploy-setup-preview', opts),
+  deploySetupState: (opts) => ipcRenderer.invoke('deploy-setup-state', opts),
+  deploySetupSaveDraft: (opts) => ipcRenderer.invoke('deploy-setup-save-draft', opts),
   deploySetupImportEnv: (opts) => ipcRenderer.invoke('deploy-setup-import-env', opts),
   deploySetupGenerateEnv: (opts) => ipcRenderer.invoke('deploy-setup-generate-env', opts),
   deploySetupRun: (opts) => ipcRenderer.invoke('deploy-setup-run', opts),
+  deploySetupCheck: (opts) => ipcRenderer.invoke('deploy-setup-check', opts),
+  deployAssistantSettings: (opts) => ipcRenderer.invoke('deploy-assistant-settings', opts),
+  deployAssistantHistory: (opts) => ipcRenderer.invoke('deploy-assistant-history', opts),
+  deployAssistantRun: (opts) => ipcRenderer.invoke('deploy-assistant-run', opts),
+  deployAssistantCancel: (opts) => ipcRenderer.invoke('deploy-assistant-cancel', opts),
+  onDeployAssistantProgress: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('deploy-assistant-progress', listener)
+    return () => ipcRenderer.removeListener('deploy-assistant-progress', listener)
+  },
   sshQuickDeploy: (opts) => ipcRenderer.invoke('ssh-quick-deploy', opts),
   sshFullDeploy: (opts) => ipcRenderer.invoke('ssh-full-deploy', opts),
   sshRemoveProject: (opts) => ipcRenderer.invoke('ssh-remove-project', opts),

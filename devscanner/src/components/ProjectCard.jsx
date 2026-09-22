@@ -96,6 +96,10 @@ function ProjectCard({
         </button>
       </div>
 
+      {project.relativePath && (
+        <div className="project-location" title={project.path}>{project.relativePath}</div>
+      )}
+
       {(project.type === 'docker-compose' || project.type === 'monorepo') && (
         <div className="project-type-badge">{project.type}</div>
       )}

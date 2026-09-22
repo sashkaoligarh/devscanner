@@ -809,6 +809,17 @@ select.form-input option:hover {
   box-shadow: 0 0 0 2px var(--color-accent-dim);
 }
 
+.custom-select-trigger:focus-visible,
+.custom-select-option:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.custom-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .custom-select-value {
   overflow: hidden;
   text-overflow: ellipsis;
